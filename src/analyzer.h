@@ -888,8 +888,53 @@ get_SV_event_ALEPH(
     );
 }
 
+// utils for SV properties:
 
+// SV displacement from PV in lab frame x/y/z [mm], per jet
+ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
+get_dx_SV_jets(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>& vertices,
+    const TVector3& PV)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>> result;
+    for (const auto& jet_vtx : vertices) {
+        ROOT::VecOps::RVec<double> temp;
+        for (const auto& vtx : jet_vtx)
+            temp.push_back(vtx.vertex.position[0] - PV.x());
+        result.push_back(temp);
+    }
+    return result;
+}
 
+ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
+get_dy_SV_jets(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>& vertices,
+    const TVector3& PV)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>> result;
+    for (const auto& jet_vtx : vertices) {
+        ROOT::VecOps::RVec<double> temp;
+        for (const auto& vtx : jet_vtx)
+            temp.push_back(vtx.vertex.position[1] - PV.y());
+        result.push_back(temp);
+    }
+    return result;
+}
+
+ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
+get_dz_SV_jets(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>& vertices,
+    const TVector3& PV)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>> result;
+    for (const auto& jet_vtx : vertices) {
+        ROOT::VecOps::RVec<double> temp;
+        for (const auto& vtx : jet_vtx)
+            temp.push_back(vtx.vertex.position[2] - PV.z());
+        result.push_back(temp);
+    }
+    return result;
+}
 
 
 }} // namespace FCCAnalyses::AlephSelection

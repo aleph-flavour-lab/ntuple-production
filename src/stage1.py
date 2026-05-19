@@ -334,6 +334,15 @@ class Analysis():
         df = df.Define("sv_dxyz",        "FCCAnalyses::VertexingUtils::get_d3d_SV(sv_jets, VertexObject_looseBS)")
         df = df.Define("sv_cosPointing", "FCCAnalyses::VertexingUtils::get_pointingangle_SV(sv_jets, VertexObject_looseBS)")
 
+        # displacement of SVs wrt to primary vertex
+        df = df.Define("PrimaryVertexP3",
+             "TVector3(VertexObject_looseBS.vertex.position[0], "
+             "VertexObject_looseBS.vertex.position[1], "
+             "VertexObject_looseBS.vertex.position[2])")
+        df = df.Define("sv_dx", "FCCAnalyses::AlephSelection::get_dx_SV_jets(sv_jets, PrimaryVertexP3)")
+        df = df.Define("sv_dy", "FCCAnalyses::AlephSelection::get_dy_SV_jets(sv_jets, PrimaryVertexP3)")
+        df = df.Define("sv_dz", "FCCAnalyses::AlephSelection::get_dz_SV_jets(sv_jets, PrimaryVertexP3)")
+
 
 
 
@@ -550,6 +559,9 @@ class Analysis():
             "sv_dxy",
             "sv_dxyz",
             "sv_cosPointing",
+            "sv_dx",
+            "sv_dy",
+            "sv_dz",
 
             # Track variables
             "n_tracks_all",
