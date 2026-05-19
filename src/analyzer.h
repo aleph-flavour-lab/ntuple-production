@@ -936,6 +936,52 @@ get_dz_SV_jets(
     return result;
 }
 
+// SV momentum relative to jet momentum (|p_SV| / |p_jet|), per jet
+ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
+get_prel_SV_jets(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>& vertices,
+    const ROOT::VecOps::RVec<fastjet::PseudoJet>& jets)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>> result;
+    for (unsigned int i = 0; i < jets.size(); i++) {
+        double jet_pmag = TVector3(jets[i].px(), jets[i].py(), jets[i].pz()).Mag();
+        ROOT::VecOps::RVec<double> sv_pmags = FCCAnalyses::VertexingUtils::get_pMag_SV(vertices[i]);
+        ROOT::VecOps::RVec<double> temp;
+        for (double pmag : sv_pmags)
+            temp.push_back(pmag / jet_pmag);
+        result.push_back(temp);
+    }
+    return result;
+}
+
+// Pointing angle of SV wrt PV, per jet.
+// Note: FCCAnalyses::VertexingUtils::get_pointingangle_SV has a bug — it uses the absolute
+// SV position instead of the displacement vector (SV - PV). This is the corrected version, following Luka's implementation in ntuplizer
+ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
+get_pointingangle_SV(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>& vertices,
+    const FCCAnalysesVertex& PV)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>> result;
+    edm4hep::Vector3f r_PV = PV.vertex.position;
+    for (const auto& jet_vtx : vertices) {
+        ROOT::VecOps::RVec<double> temp;
+        for (const auto& vtx : jet_vtx) {
+            TVector3 p_sum;
+            for (const auto& p_tr : vtx.updated_track_momentum_at_vertex)
+                p_sum += p_tr;
+            edm4hep::Vector3f r_vtx = vtx.vertex.position;
+            TVector3 r_vtx_PV(r_vtx[0] - r_PV[0],
+                               r_vtx[1] - r_PV[1],
+                               r_vtx[2] - r_PV[2]);
+            double cosAngle = p_sum.Dot(r_vtx_PV) / (p_sum.Mag() * r_vtx_PV.Mag());
+            temp.push_back(cosAngle);
+        }
+        result.push_back(temp);
+    }
+    return result;
+}
+
 
 }} // namespace FCCAnalyses::AlephSelection
 

@@ -332,7 +332,9 @@ class Analysis():
         df = df.Define("sv_phirel",      "FCCAnalyses::VertexingUtils::get_relPhi_SV(sv_jets, jets)")
         df = df.Define("sv_dxy",         "FCCAnalyses::VertexingUtils::get_dxy_SV(sv_jets, VertexObject_looseBS)")
         df = df.Define("sv_dxyz",        "FCCAnalyses::VertexingUtils::get_d3d_SV(sv_jets, VertexObject_looseBS)")
-        df = df.Define("sv_cosPointing", "FCCAnalyses::VertexingUtils::get_pointingangle_SV(sv_jets, VertexObject_looseBS)")
+        # for pointing angle, use custom defined function following luka's code
+        df = df.Define("sv_cosPointing", "FCCAnalyses::AlephSelection::get_pointingangle_SV(sv_jets, VertexObject_looseBS)")
+        df = df.Define("sv_prel", "FCCAnalyses::AlephSelection::get_prel_SV_jets(sv_jets, jets)")
 
         # displacement of SVs wrt to primary vertex
         df = df.Define("PrimaryVertexP3",
@@ -559,6 +561,7 @@ class Analysis():
             "sv_dxy",
             "sv_dxyz",
             "sv_cosPointing",
+            "sv_prel",
             "sv_dx",
             "sv_dy",
             "sv_dz",
