@@ -37,6 +37,10 @@
 #include "FCCAnalyses/JetClusteringUtils.h"
 // #include "FCCAnalyses/ExternalRecombiner.h"
 #include "FCCAnalyses/MCParticle.h"
+#include "FCCAnalyses/VertexingUtils.h"
+#include "FCCAnalyses/VertexFinderLCFIPlus.h" 
+
+#include "TVector3.h"
 
 #include "edm4hep/MCParticleData.h"
 #include "edm4hep/Track.h"
@@ -775,10 +779,321 @@ rv::RVec<rv::RVec<int>> mask(const rv::RVec<FCCAnalysesJetConstituentsData> &ene
     return out;
 }
 
+// -----------------------------------
+// Custom helpers for secondary vertexing
+// -----------------------------------
+
+using FCCAnalysesVertex = FCCAnalyses::VertexingUtils::FCCAnalysesVertex;
 
 
+// helper function which assigns secondary vertices as found per event to the jets using a closest dR match 
+ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>
+assign_SV_to_jets(
+    const ROOT::VecOps::RVec<FCCAnalysesVertex>& secondary_vertex_objects, 
+    const ROOT::VecOps::RVec<fastjet::PseudoJet>& jets)
+{   
+  // returned object is a vector of vectors where outer index are the jets, and inner index are the secondary vertices assigned to that jet 
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>> result(jets.size());
+    if (jets.size() == 0) return result;
 
+    // use helper function from FCCAna to obtain the secondary vertex 3 vector
+    ROOT::VecOps::RVec<TVector3> sv_momenta = FCCAnalyses::VertexingUtils::get_p_SV(secondary_vertex_objects);
 
+    for (unsigned int sv_idx = 0; sv_idx < secondary_vertex_objects.size(); sv_idx++) {
+        TVector3 sv_p = sv_momenta.at(sv_idx);
+        if (sv_p.Mag() < 1e-10) {
+            std::cerr << "WARNING: Secondary vertex with zero momentum encountered, skipping jet assignment" << std::endl;
+            continue;
+        }
+        double minDR = 99.;
+        unsigned int best_jet = 0;
+        for (unsigned int j = 0; j < jets.size(); j++) {
+            double dR = sv_p.DeltaR(TVector3(jets[j].px(), jets[j].py(), jets[j].pz()));
+            if (dR < minDR) { minDR = dR; best_jet = j; }
+        }
+        result.at(best_jet).push_back(secondary_vertex_objects.at(sv_idx));
+    }
+    return result;
+}
+
+// V0 rejection with ALEPH-tuned tight constraints, following Luka's implementation in ntuplizer
+// inclusive=false (default): a track can only appear in one V0 pair (more physically correct).
+// inclusive=true:  matches ntuplizer behaviour — a track can be flagged by multiple V0 pairs
+ROOT::VecOps::RVec<edm4hep::TrackState>
+V0rejection_ALEPH(
+    const ROOT::VecOps::RVec<edm4hep::TrackState>& np_tracks,
+    const FCCAnalysesVertex& PV,
+    double solenoidBz = 1.5,
+    bool inclusive = false)
+{
+    int nTr = np_tracks.size();
+    ROOT::VecOps::RVec<bool> isInV0(nTr, false);
+    if (nTr < 2) return np_tracks;
+
+    ROOT::VecOps::RVec<edm4hep::TrackState> tr_pair;
+    edm4hep::TrackState tr_i, tr_j;
+    tr_pair.push_back(tr_i);
+    tr_pair.push_back(tr_j);
+    FCCAnalysesVertex V0_vtx;
+
+    for (unsigned int i = 0; i < nTr-1; i++) {
+        if (!inclusive && isInV0[i]) continue;
+        tr_pair[0] = np_tracks[i];
+        for (unsigned int j = i+1; j < nTr; j++) {
+            if (!inclusive && isInV0[j]) continue;
+            if (tr_pair[0].omega * np_tracks[j].omega > 0) continue;
+            tr_pair[1] = np_tracks[j];
+
+            auto cand = FCCAnalyses::VertexFinderLCFIPlus::get_V0candidate(
+                V0_vtx, tr_pair, PV, true, 9., solenoidBz);
+            if (cand.size() == 0) continue;
+
+            // ALEPH-tuned tight constraints (widened mass windows, reduced distance minimum)
+            bool isKs    = cand[0]>0.453 && cand[0]<0.553 && cand[4]>0.1 && cand[5]>0.999;
+            bool isLam1  = cand[1]>1.06  && cand[1]<1.16  && cand[4]>0.1 && cand[5]>0.99995;
+            bool isLam2  = cand[2]>1.06  && cand[2]<1.16  && cand[4]>0.1 && cand[5]>0.99995;
+            bool isGamma = cand[3]<0.005 && cand[4]>0.9   && cand[5]>0.99995;
+
+            if (isKs || isLam1 || isLam2 || isGamma) {
+                isInV0[i] = true;
+                isInV0[j] = true;
+                if (!inclusive) break;
+            }
+        }
+    }
+
+    ROOT::VecOps::RVec<edm4hep::TrackState> result;
+    for (unsigned int i = 0; i < nTr; i++)
+        if (!isInV0[i]) result.push_back(np_tracks[i]);
+    return result;
+}
+
+// SV finding with all ALEPH-specific defaults: 1.5 T field, ALEPH-tuned V0 rejection,
+// dR prefilter enabled. Set inclusive_v0=true to match ntuplizer behaviour exactly.
+ROOT::VecOps::RVec<FCCAnalysesVertex>
+get_SV_event_ALEPH(
+    const ROOT::VecOps::RVec<edm4hep::TrackState>& np_tracks,
+    const ROOT::VecOps::RVec<edm4hep::TrackState>& all_tracks,
+    const FCCAnalysesVertex& PV,
+    double dR_cut = 0.8,
+    bool inclusive_v0 = false)
+{
+    auto tracks_no_v0 = V0rejection_ALEPH(np_tracks, PV, 1.5, inclusive_v0);
+    return FCCAnalyses::VertexFinderLCFIPlus::get_SV_event(
+        tracks_no_v0, all_tracks, PV,
+        false,         // V0 rejection already done above with ALEPH constraints
+        10., 10., 5., // chi2_cut, invM_cut, chi2Tr_cut
+        1.5,           // solenoidBz [T]
+        dR_cut,       // dR_cut for prefiltering
+        true,          // require opposite-charge seed pairs (matches ntuplizer)
+        true           // tight V0 constraints in per-pair seed screening (matches ntuplizer)
+    );
+}
+
+// utils for SV properties:
+
+// SV displacement from PV in lab frame x/y/z [mm], per jet
+ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
+get_dx_SV_jets(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>& vertices,
+    const TVector3& PV)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>> result;
+    for (const auto& jet_vtx : vertices) {
+        ROOT::VecOps::RVec<double> temp;
+        for (const auto& vtx : jet_vtx)
+            temp.push_back(vtx.vertex.position[0] - PV.x());
+        result.push_back(temp);
+    }
+    return result;
+}
+
+ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
+get_dy_SV_jets(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>& vertices,
+    const TVector3& PV)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>> result;
+    for (const auto& jet_vtx : vertices) {
+        ROOT::VecOps::RVec<double> temp;
+        for (const auto& vtx : jet_vtx)
+            temp.push_back(vtx.vertex.position[1] - PV.y());
+        result.push_back(temp);
+    }
+    return result;
+}
+
+ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
+get_dz_SV_jets(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>& vertices,
+    const TVector3& PV)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>> result;
+    for (const auto& jet_vtx : vertices) {
+        ROOT::VecOps::RVec<double> temp;
+        for (const auto& vtx : jet_vtx)
+            temp.push_back(vtx.vertex.position[2] - PV.z());
+        result.push_back(temp);
+    }
+    return result;
+}
+
+// SV momentum relative to jet momentum (|p_SV| / |p_jet|), per jet
+ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
+get_prel_SV_jets(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>& vertices,
+    const ROOT::VecOps::RVec<fastjet::PseudoJet>& jets)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>> result;
+    for (unsigned int i = 0; i < jets.size(); i++) {
+        double jet_pmag = TVector3(jets[i].px(), jets[i].py(), jets[i].pz()).Mag();
+        ROOT::VecOps::RVec<double> sv_pmags = FCCAnalyses::VertexingUtils::get_pMag_SV(vertices[i]);
+        ROOT::VecOps::RVec<double> temp;
+        for (double pmag : sv_pmags)
+            temp.push_back(pmag / jet_pmag);
+        result.push_back(temp);
+    }
+    return result;
+}
+
+// Pointing angle of SV wrt PV, per jet.
+// Note: FCCAnalyses::VertexingUtils::get_pointingangle_SV has a bug — it uses the absolute
+// SV position instead of the displacement vector (SV - PV). This is the corrected version, following Luka's implementation in ntuplizer
+ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
+get_pointingangle_SV(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>& vertices,
+    const FCCAnalysesVertex& PV)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>> result;
+    edm4hep::Vector3f r_PV = PV.vertex.position;
+    for (const auto& jet_vtx : vertices) {
+        ROOT::VecOps::RVec<double> temp;
+        for (const auto& vtx : jet_vtx) {
+            TVector3 p_sum;
+            for (const auto& p_tr : vtx.updated_track_momentum_at_vertex)
+                p_sum += p_tr;
+            edm4hep::Vector3f r_vtx = vtx.vertex.position;
+            TVector3 r_vtx_PV(r_vtx[0] - r_PV[0],
+                               r_vtx[1] - r_PV[1],
+                               r_vtx[2] - r_PV[2]);
+            double cosAngle = p_sum.Dot(r_vtx_PV) / (p_sum.Mag() * r_vtx_PV.Mag());
+            temp.push_back(cosAngle);
+        }
+        result.push_back(temp);
+    }
+    return result;
+}
+
+// -----------------------------------
+// V0 reconstruction
+// -----------------------------------
+
+// Corrected invariant mass of a single SV (CMS-BTV-16-002):
+//   sqrt(m^2 + p^2*sin^2(theta)) + p*sin(theta)
+// where theta is the angle between the SV momentum sum and the SV-PV displacement vector.
+// This accounts for neutral particles that are not reconstructed at the SV.
+double get_correctedInvMass_SV_single(
+    const FCCAnalysesVertex& sv,
+    const FCCAnalysesVertex& PV)
+{
+    double rawMass = FCCAnalyses::VertexingUtils::get_invM(sv);
+    TVector3 p_sum;
+    for (const auto& p_tr : sv.updated_track_momentum_at_vertex)
+        p_sum += p_tr;
+    double p_mag = p_sum.Mag();
+    edm4hep::Vector3f r_sv = sv.vertex.position;
+    edm4hep::Vector3f r_pv = PV.vertex.position;
+    TVector3 flight(r_sv[0]-r_pv[0], r_sv[1]-r_pv[1], r_sv[2]-r_pv[2]);
+    double cosTheta = p_sum.Dot(flight) / (p_mag * flight.Mag());
+    if (std::abs(cosTheta) > 1.) cosTheta /= std::abs(cosTheta);
+    double sin2Theta = 1. - cosTheta*cosTheta;
+    double sinTheta  = std::sqrt(sin2Theta);
+    return std::sqrt(rawMass*rawMass + p_mag*p_mag*sin2Theta) + p_mag*sinTheta;
+}
+
+// Per-jet corrected invariant mass of SVs
+ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
+get_correctedInvMass_SV(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>& vertices,
+    const FCCAnalysesVertex& PV)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>> result;
+    for (const auto& jet_vtx : vertices) {
+        ROOT::VecOps::RVec<double> temp;
+        for (const auto& vtx : jet_vtx)
+            temp.push_back(get_correctedInvMass_SV_single(vtx, PV));
+        result.push_back(temp);
+    }
+    return result;
+}
+
+// Count V0s of a given PDG ID per jet (e.g. 310 for Ks, 3122 for Lambda)
+ROOT::VecOps::RVec<int>
+count_V0type_jets(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<int>>& pdg_per_jet,
+    int target_pdg)
+{
+    ROOT::VecOps::RVec<int> result;
+    for (const auto& jet_pdg : pdg_per_jet) {
+        int n = 0;
+        for (int pdg : jet_pdg) if (pdg == target_pdg) n++;
+        result.push_back(n);
+    }
+    return result;
+}
+
+// V0 finding with ALEPH-specific constraints, matching the values used in V0rejection_ALEPH
+FCCAnalyses::VertexingUtils::FCCAnalysesV0
+get_V0s_ALEPH(
+    const ROOT::VecOps::RVec<edm4hep::TrackState>& np_tracks,
+    const FCCAnalysesVertex& PV,
+    double solenoidBz = 1.5)
+{
+    return FCCAnalyses::VertexFinderLCFIPlus::get_V0s(
+        np_tracks, PV,
+        0.453, 0.553, 0.1, 0.999,    // Ks:     mass window [GeV], dis_min [mm], cosAng
+        1.06,  1.16,  0.1, 0.99995,  // Lambda
+        0.0,   0.005, 0.9, 0.99995,  // Gamma
+        9., solenoidBz
+    );
+}
+
+// Bundles V0 candidates distributed over jets (vtx, PDG ID, invariant mass together).
+// Keeping these three arrays in sync ensures the PDG-to-mass correspondence is never broken.
+struct V0sPerJet {
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>> vtx;
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<int>>               pdgAbs;
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>            invM;
+};
+
+// Assign event-level V0 candidates to jets using closest-dR matching
+V0sPerJet
+assign_V0s_to_jets(
+    const FCCAnalyses::VertexingUtils::FCCAnalysesV0& v0s,
+    const ROOT::VecOps::RVec<fastjet::PseudoJet>& jets)
+{
+    V0sPerJet result;
+    result.vtx.resize(jets.size());
+    result.pdgAbs.resize(jets.size());
+    result.invM.resize(jets.size());
+    if (jets.size() == 0 || v0s.vtx.size() == 0) return result;
+
+    ROOT::VecOps::RVec<TVector3> v0_momenta = FCCAnalyses::VertexingUtils::get_p_SV(v0s.vtx);
+    for (unsigned int i = 0; i < v0s.vtx.size(); i++) {
+        TVector3 v0_p = v0_momenta.at(i);
+        if (v0_p.Mag() < 1e-10) continue;
+        double minDR = 99.;
+        unsigned int best_jet = 0;
+        for (unsigned int j = 0; j < jets.size(); j++) {
+            double dR = v0_p.DeltaR(TVector3(jets[j].px(), jets[j].py(), jets[j].pz()));
+            if (dR < minDR) { minDR = dR; best_jet = j; }
+        }
+        result.vtx[best_jet].push_back(v0s.vtx[i]);
+        result.pdgAbs[best_jet].push_back(v0s.pdgAbs[i]);
+        result.invM[best_jet].push_back(v0s.invM[i]);
+    }
+    return result;
+}
 
 
 }} // namespace FCCAnalyses::AlephSelection

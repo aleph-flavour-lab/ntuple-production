@@ -62,6 +62,10 @@ def compare_events(filepath1, filepath2,
                    branch_map,
                    max_print=10, tree_name = "events"):
 
+    #debug:
+    print("file1:", filepath1)
+    print("file2:", filepath2)
+
     #open files again
     file1 = ROOT.TFile.Open(filepath1)
     file2 = ROOT.TFile.Open(filepath2)
@@ -92,7 +96,7 @@ def compare_events(filepath1, filepath2,
             val1 = get_value(getattr(tree1, branch_1))
             val2 = get_value(getattr(tree2, branch_2))
 
-            print(branch_name, val1, val2) #DEBUG REMOVE LATER
+            # print(branch_name, val1, val2) #DEBUG REMOVE LATER
 
             if val1 != val2:
                 if not event_has_diff:
@@ -102,8 +106,8 @@ def compare_events(filepath1, filepath2,
                     n_diff_events += 1
 
                 print(f"  Branch mismatch: {branch_1} vs {branch_2}")
-                print(f"    file1: {val1}")
-                print(f"    file2: {val2}")
+                print(f"    file1 (Luka): {val1}")
+                print(f"    file2 (ours): {val2}")
 
                 if not branch_name in list_of_branches_with_diffs:
                     list_of_branches_with_diffs.append(branch_name)
@@ -122,7 +126,7 @@ def main():
     tree_name = "events"
 
     # First we get the sets of run and event number from each file and find the overlap (=common events)
-    file1 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/from_luka/output.root"
+    file1 = "/eos/user/l/llambrec/aleph-data/ntuples-withks/eventlevel/mc/output_qqb_1.root"
     run_branch_1 = "runNumber"
     event_branch_1 = "eventNumber"
 
@@ -131,7 +135,8 @@ def main():
     events1 = load_events(file1, tree_name, run_branch_1, event_branch_1, do_flavour_filter = True, flavour_val = 5.)
     print(f"File1: {len(events1)} events")
 
-    file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/v09_ntuple_valid/ntuple_valid_tester_5.root" 
+    # file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/v09_ntuple_valid/ntuple_valid_tester_5.root" 
+    file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/v15_SV_test/Zbb.root" 
     run_branch_2 = "run_number"
     event_branch_2 = "event_number"
 
@@ -159,25 +164,31 @@ def main():
         "run":("runNumber", "run_number"),
         "event":("eventNumber", "event_number"),
         #input to the primary vertex fit:
-        "n_selected_tracks":("Event_nSelectedTracks", "n_tracks_sel"),
-        # "n_selected_tracks_vertex":("", "n_trackstates_sel"), #luka doesnt store this?
-        # output of primary vertex fit
-        "n_primary_tracks":("Event_nPrimaryTracks", "n_primary_tracks"),
-        "n_secondary_tracks":("Event_nSecondaryTracks", "n_secondary_tracks"),
-        # vertex position
-        "vertex_x":("PV_x", "Vertex_refit_x"),
-        "vertex_y":("PV_y", "Vertex_refit_y"),
-        "vertex_z":("PV_z", "Vertex_refit_z"),
-        #truth vertex
-        "gen_vertex_x":("GenPV_x", "gen_vertex_x"),
-        "gen_vertex_y":("GenPV_y", "gen_vertex_y"),
-        "gen_vertex_z":("GenPV_z", "gen_vertex_z"),
+        # "n_selected_tracks":("Event_nSelectedTracks", "n_tracks_sel"),
+        # # "n_selected_tracks_vertex":("", "n_trackstates_sel"), #luka doesnt store this?
+        # # output of primary vertex fit
+        # "n_primary_tracks":("Event_nPrimaryTracks", "n_primary_tracks"),
+        # "n_secondary_tracks":("Event_nSecondaryTracks", "n_secondary_tracks"),
+        # # vertex position
+        # "vertex_x":("PV_x", "Vertex_refit_x"),
+        # "vertex_y":("PV_y", "Vertex_refit_y"),
+        # "vertex_z":("PV_z", "Vertex_refit_z"),
+        # #truth vertex
+        # "gen_vertex_x":("GenPV_x", "gen_vertex_x"),
+        # "gen_vertex_y":("GenPV_y", "gen_vertex_y"),
+        # "gen_vertex_z":("GenPV_z", "gen_vertex_z"),
+        #secondary vertices:
+        "n_sv_event":("Event_nSV", "n_sv_event"),
+        "n_sv_jets":("Jets_nSV", "n_sv_jets"),
+        "sv_ntracks":("SecondaryVertices_nTracks", "sv_ntracks"),
+        "n_v0_event":("Event_nV0Candidates", "n_v0_event"),
 
 
 
     }
 
     compare_events(file1, file2, common, branch_translation)
+    print(f"Reminder: Common events: {len(common)}")
 
 
 

@@ -194,6 +194,7 @@ class Analysis():
         df = df.Define("jetConstitutentsTypes", f"AlephSelection::build_constituents_Types()(ParticleID, _jetc)")
         df = df.Define("JetClustering_d23", "std::sqrt(JetClusteringUtils::get_exclusive_dmerge(_jet, 2))")
         df = df.Define("JetClustering_d34", "std::sqrt(JetClusteringUtils::get_exclusive_dmerge(_jet, 3))")
+
         ############################################# Event Level Variables #######################################################
         df = df.Define("jet_p4", "JetConstituentsUtils::compute_tlv_jets(jets)" )
         df = df.Define("event_invariant_mass", "JetConstituentsUtils::InvariantMass(jet_p4[0], jet_p4[1])")
@@ -303,6 +304,77 @@ class Analysis():
         # df = df.Define("res_vertex_y_all_tracks", "Vertex_refit_y_all_tracks - gen_vertex_y")
         # df = df.Define("res_vertex_z_all_tracks", "Vertex_refit_z_all_tracks - gen_vertex_z")
 
+        ############################################# Secondary Vertices #######################################################
+        # first we find the secondary vertices per event ...        
+        df = df.Define("SVs_looseBS", "FCCAnalyses::AlephSelection::get_SV_event_ALEPH("
+            "SecondaryTracks_looseBS, "               # non-primary tracks
+            "trackstates_selected_baseline_flipped, " # all tracks
+            "VertexObject_looseBS, "                  # primary vertex
+            "0.8, "                                   # dR prefilter cut
+            "true)"                                   # inclusive V0 rejection following Luka's approach - TO BE REVISTED!
+        )
+
+        #.. then we assign them to the closest jet based on dR (also tracks to be moved between jets, in contrast to using get_SV_jet ! )
+        df = df.Define("sv_jets", "FCCAnalyses::AlephSelection::assign_SV_to_jets(SVs_looseBS, jets)")
+
+        # secondary vertex multiplicities
+        df = df.Define("n_sv_event", "int(SVs_looseBS.size())")
+        df = df.Define("n_sv_jets",  "FCCAnalyses::VertexingUtils::get_n_SV_jets(sv_jets)")
+
+        # secondary vertex  properties
+        df = df.Define("sv_chi2",        "FCCAnalyses::VertexingUtils::get_chi2_SV(sv_jets)")
+        df = df.Define("sv_chi2_norm",   "FCCAnalyses::VertexingUtils::get_norm_chi2_SV(sv_jets)")
+        df = df.Define("sv_ndof",        "FCCAnalyses::VertexingUtils::get_nDOF_SV(sv_jets)")
+        df = df.Define("sv_ntracks",     "FCCAnalyses::VertexingUtils::get_VertexNtrk(sv_jets)")
+        df = df.Define("sv_mass",        "FCCAnalyses::VertexingUtils::get_invM(sv_jets)")
+        df = df.Define("sv_p",           "FCCAnalyses::VertexingUtils::get_pMag_SV(sv_jets)")
+        df = df.Define("sv_thetarel",    "FCCAnalyses::VertexingUtils::get_relTheta_SV(sv_jets, jets)")
+        df = df.Define("sv_phirel",      "FCCAnalyses::VertexingUtils::get_relPhi_SV(sv_jets, jets)")
+        df = df.Define("sv_dxy",         "FCCAnalyses::VertexingUtils::get_dxy_SV(sv_jets, VertexObject_looseBS)")
+        df = df.Define("sv_dxyz",        "FCCAnalyses::VertexingUtils::get_d3d_SV(sv_jets, VertexObject_looseBS)")
+        # for pointing angle, use custom defined function following luka's code
+        df = df.Define("sv_cosPointing",    "FCCAnalyses::AlephSelection::get_pointingangle_SV(sv_jets, VertexObject_looseBS)")
+        df = df.Define("sv_prel",           "FCCAnalyses::AlephSelection::get_prel_SV_jets(sv_jets, jets)")
+        df = df.Define("sv_correctedMass",  "FCCAnalyses::AlephSelection::get_correctedInvMass_SV(sv_jets, VertexObject_looseBS)")
+
+        # displacement of SVs wrt to primary vertex
+        df = df.Define("PrimaryVertexP3",
+             "TVector3(VertexObject_looseBS.vertex.position[0], "
+             "VertexObject_looseBS.vertex.position[1], "
+             "VertexObject_looseBS.vertex.position[2])")
+        df = df.Define("sv_dx", "FCCAnalyses::AlephSelection::get_dx_SV_jets(sv_jets, PrimaryVertexP3)")
+        df = df.Define("sv_dy", "FCCAnalyses::AlephSelection::get_dy_SV_jets(sv_jets, PrimaryVertexP3)")
+        df = df.Define("sv_dz", "FCCAnalyses::AlephSelection::get_dz_SV_jets(sv_jets, PrimaryVertexP3)")
+
+        ############################################# V0 Reconstruction #######################################################
+        df = df.Define("V0s_event",
+            "FCCAnalyses::AlephSelection::get_V0s_ALEPH("
+            "SecondaryTracks_looseBS, "
+            "VertexObject_looseBS)"
+        )
+        df = df.Define("v0s_per_jet", "FCCAnalyses::AlephSelection::assign_V0s_to_jets(V0s_event, jets)")
+        df = df.Define("v0_jets",  "v0s_per_jet.vtx")
+        df = df.Define("v0_pdg",   "v0s_per_jet.pdgAbs")
+        df = df.Define("v0_invM",  "v0s_per_jet.invM")
+        df = df.Define("n_v0_event",   "int(V0s_event.vtx.size())")
+        df = df.Define("n_v0_jets",    "FCCAnalyses::VertexingUtils::get_n_SV_jets(v0_jets)")
+        df = df.Define("n_v0_ks",      "FCCAnalyses::AlephSelection::count_V0type_jets(v0_pdg, 310)")
+        df = df.Define("n_v0_lambda",  "FCCAnalyses::AlephSelection::count_V0type_jets(v0_pdg, 3122)")
+        df = df.Define("v0_chi2",          "FCCAnalyses::VertexingUtils::get_chi2_SV(v0_jets)")
+        df = df.Define("v0_chi2_norm",     "FCCAnalyses::VertexingUtils::get_norm_chi2_SV(v0_jets)")
+        df = df.Define("v0_ndof",          "FCCAnalyses::VertexingUtils::get_nDOF_SV(v0_jets)")
+        df = df.Define("v0_ntracks",       "FCCAnalyses::VertexingUtils::get_VertexNtrk(v0_jets)")
+        df = df.Define("v0_p",             "FCCAnalyses::VertexingUtils::get_pMag_SV(v0_jets)")
+        df = df.Define("v0_prel",          "FCCAnalyses::AlephSelection::get_prel_SV_jets(v0_jets, jets)")
+        df = df.Define("v0_thetarel",      "FCCAnalyses::VertexingUtils::get_relTheta_SV(v0_jets, jets)")
+        df = df.Define("v0_phirel",        "FCCAnalyses::VertexingUtils::get_relPhi_SV(v0_jets, jets)")
+        df = df.Define("v0_dxy",           "FCCAnalyses::VertexingUtils::get_dxy_SV(v0_jets, VertexObject_looseBS)")
+        df = df.Define("v0_dxyz",          "FCCAnalyses::VertexingUtils::get_d3d_SV(v0_jets, VertexObject_looseBS)")
+        df = df.Define("v0_cosPointing",   "FCCAnalyses::AlephSelection::get_pointingangle_SV(v0_jets, VertexObject_looseBS)")
+        df = df.Define("v0_correctedMass", "FCCAnalyses::AlephSelection::get_correctedInvMass_SV(v0_jets, VertexObject_looseBS)")
+        df = df.Define("v0_dx",  "FCCAnalyses::AlephSelection::get_dx_SV_jets(v0_jets, PrimaryVertexP3)")
+        df = df.Define("v0_dy",  "FCCAnalyses::AlephSelection::get_dy_SV_jets(v0_jets, PrimaryVertexP3)")
+        df = df.Define("v0_dz",  "FCCAnalyses::AlephSelection::get_dz_SV_jets(v0_jets, PrimaryVertexP3)")
 
         ############################################# Particle Flow Level Variables #######################################################
         df = df.Define("pfcand_isMu",     "AlephSelection::get_isType(jetConstitutentsTypes,2)")
@@ -502,6 +574,49 @@ class Analysis():
             # "res_vertex_x_all_tracks",
             # "res_vertex_y_all_tracks",
             # "res_vertex_z_all_tracks",
+
+            # secondary vertices:
+            "n_sv_event",
+            "n_sv_jets",
+            "sv_chi2",
+            "sv_chi2_norm",
+            "sv_ndof",
+            "sv_ntracks",
+            "sv_mass",
+            "sv_p",
+            "sv_thetarel",
+            "sv_phirel",
+            "sv_dxy",
+            "sv_dxyz",
+            "sv_cosPointing",
+            "sv_prel",
+            "sv_correctedMass",
+            "sv_dx",
+            "sv_dy",
+            "sv_dz",
+
+            # V0 candidates:
+            "n_v0_event",
+            "n_v0_jets",
+            "n_v0_ks",
+            "n_v0_lambda",
+            "v0_pdg",
+            "v0_invM",
+            "v0_chi2",
+            "v0_chi2_norm",
+            "v0_ndof",
+            "v0_ntracks",
+            "v0_p",
+            "v0_prel",
+            "v0_thetarel",
+            "v0_phirel",
+            "v0_dxy",
+            "v0_dxyz",
+            "v0_cosPointing",
+            "v0_correctedMass",
+            "v0_dx",
+            "v0_dy",
+            "v0_dz",
 
             # Track variables
             "n_tracks_all",
