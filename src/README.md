@@ -3,7 +3,10 @@
 Version of the FCCAnalyses code that supports command line arguments, to be able to process both data and MC with the same script. Nightlies version of the key4hep stack is required for this. 
 
 ## Setup
-```bash
+
+Folow the steps described in the general [README](../README.md) at the top level to setup the code, then just `cd src`. 
+ 
+<!-- ```bash
 git clone https://github.com/Apranikstar/Aleph.git
 cd Aleph
 git submodule update --init --recursive
@@ -13,7 +16,7 @@ cd ../src
 source /cvmfs/sw-nightlies.hsf.org/key4hep/setup.sh #or compile and source the FCCAnalyses module.
 ```
 
-Need nightlies because updated FCCAnalyses version after this commit is needed: https://github.com/HEP-FCC/FCCAnalyses/pull/474
+Need nightlies because updated FCCAnalyses version after this commit is needed: https://github.com/HEP-FCC/FCCAnalyses/pull/474 -->
 
 ## Stage1: Produce ntuples
 
