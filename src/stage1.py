@@ -537,6 +537,18 @@ class Analysis():
         df = df.Define("pfcand_E_len", "pfcand_e[0].size()")
 
 
+
+        ### Thrust variables
+        df = df.Define("EVT_thrustNP",      'Algorithms::minimize_thrust("Minuit2","Migrad")(RP_px, RP_py, RP_pz)')
+        df = df.Define("RP_thrustangleNP",  'Algorithms::getAxisCosTheta(EVT_thrustNP, RP_px, RP_py, RP_pz)')
+        df = df.Define("EVT_thrust",        'Algorithms::getThrustPointing(1.)(RP_thrustangleNP, RP_e, EVT_thrustNP)')
+        df = df.Define("EVT_Thrust_Mag",    "EVT_thrust.at(0)")  # thrust magnitude T (keep if you want it)
+        df = df.Define("EVT_Thrust_X",      "EVT_thrust.at(1)")
+        df = df.Define("EVT_Thrust_Y",      "EVT_thrust.at(3)")
+        df = df.Define("EVT_Thrust_Z",      "EVT_thrust.at(5)")
+        df = df.Define("EVT_Thrust_cosTheta", "EVT_Thrust_Z / sqrt(EVT_Thrust_X*EVT_Thrust_X + EVT_Thrust_Y*EVT_Thrust_Y + EVT_Thrust_Z*EVT_Thrust_Z)")
+        
+
         return df
 
     def output(self):
@@ -723,6 +735,15 @@ class Analysis():
             "pfcand_PID_pval_wires_pi",
             "pfcand_PID_pval_wires_kaon",
             "pfcand_PID_pval_wires_proton",
+
+            "EVT_thrustNP",
+            "RP_thrustangleNP",
+            "EVT_thrust",
+            "EVT_Thrust_Mag",
+            "EVT_Thrust_X",
+            "EVT_Thrust_Y",
+            "EVT_Thrust_Z",
+            "EVT_Thrust_cosTheta",
             
             # to check if needed still? 
             # "dEdxPadsValue", "dEdxPadsError", "dEdxWiresValue", "dEdxWiresError",
