@@ -311,7 +311,7 @@ class Analysis():
             "trackstates_selected_baseline_flipped, " # all tracks
             "VertexObject_looseBS, "                  # primary vertex
             "0.8, "                                   # dR prefilter cut
-            "true)"                                   # inclusive V0 rejection following Luka's approach - TO BE REVISTED!
+            "false)"                                  # exclusive V0 rejection (skip+break), matching FCCAnalyses@3a4de97 isV0 - the code that produced ntuples-withks
         )
 
         #.. then we assign them to the closest jet based on dR (also tracks to be moved between jets, in contrast to using get_SV_jet ! )
@@ -351,8 +351,10 @@ class Analysis():
             "FCCAnalyses::AlephSelection::get_V0s_ALEPH("
             "SecondaryTracks_looseBS, "
             "VertexObject_looseBS,"
-            ".5," #solenoidBz
-            "true)" #loose_mass_window
+            "1.5," #solenoidBz
+            "true," #loose_mass_window
+            "-1.," #dR preselection on track pairs (<=0 disables) - 0.4 tested, made it much worse
+            "true)" #exclusive tracks (each track in at most one V0) - TESTING against ntuples-withks
         )
         df = df.Define("v0s_per_jet", "FCCAnalyses::AlephSelection::assign_V0s_to_jets(V0s_event, jets)")
         df = df.Define("v0_jets",  "v0s_per_jet.vtx")

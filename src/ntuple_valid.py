@@ -1,16 +1,37 @@
 #!/usr/bin/env python3
 
 import sys
+import math
 import ROOT
 
 # helper function to read branches
+# note: several branches are nested RVec<RVec<...>> (per jet, per vertex), so a single
+#       [0] does not reach the scalars. convert the whole thing to plain python lists:
+#       comparing two RVecs with != is element-wise and returns an RVec, which is always
+#       truthy when non-empty, i.e. every such branch would be reported as different.
 
 def get_value(obj):
-    if hasattr(obj, "__len__") and not isinstance(obj, (int, float)):
-        if len(obj) == 0:
-            return None
-        return obj[0]
+    if hasattr(obj, "__len__") and not isinstance(obj, (str, bytes)):
+        return [get_value(x) for x in obj]
     return obj
+
+
+# helper function to compare two values read by get_value.
+# floats are compared with a relative tolerance: the two codes do the same arithmetic in a
+# different order, so last-bit differences are expected and are not physics.
+
+def values_equal(val1, val2, rtol=1e-6):
+    if isinstance(val1, list) != isinstance(val2, list):
+        return False
+    if isinstance(val1, list):
+        if len(val1) != len(val2):
+            return False
+        return all(values_equal(a, b, rtol) for a, b in zip(val1, val2))
+    if isinstance(val1, float) or isinstance(val2, float):
+        if math.isnan(val1) and math.isnan(val2):
+            return True
+        return abs(val1 - val2) <= rtol * max(1.0, abs(val1), abs(val2))
+    return val1 == val2
 
 
 # helper function which returns the unique run & event_number combinations in a file as python set
@@ -80,7 +101,9 @@ def compare_events(filepath1, filepath2,
     tree2.BuildIndex(branch_map["run"][1], branch_map["event"][1])
 
     n_diff_events = 0
-    list_of_branches_with_diffs = []
+    # count in how many events each branch differs, so the summary shows where the
+    # disagreement actually sits instead of only which branches ever differed
+    n_diff_per_branch = {name: 0 for name in branch_map}
 
     for run_number, event_number in common_events:
         entry_number_file1 = tree1.GetEntryNumberWithIndex(run_number, event_number)
@@ -96,29 +119,28 @@ def compare_events(filepath1, filepath2,
             val1 = get_value(getattr(tree1, branch_1))
             val2 = get_value(getattr(tree2, branch_2))
 
-            # print(branch_name, val1, val2) #DEBUG REMOVE LATER
+            if values_equal(val1, val2):
+                continue
 
-            if val1 != val2:
-                if not event_has_diff:
-                    if n_diff_events < max_print:
-                        print(f"\nDifference in event {run_number} {event_number}")
-                    event_has_diff = True
-                    n_diff_events += 1
+            n_diff_per_branch[branch_name] += 1
 
-                print(f"  Branch mismatch: {branch_1} vs {branch_2}")
+            if not event_has_diff:
+                event_has_diff = True
+                n_diff_events += 1
+                if n_diff_events <= max_print:
+                    print(f"\nDifference in event {run_number} {event_number}")
+
+            if n_diff_events <= max_print:
+                print(f"  Branch mismatch: {branch_1} vs {branch_2} in event {event_number}")
                 print(f"    file1 (Luka): {val1}")
                 print(f"    file2 (ours): {val2}")
 
-                if not branch_name in list_of_branches_with_diffs:
-                    list_of_branches_with_diffs.append(branch_name)
-            
-            # if n_diff_events >= max_print:
-            #     print("\nReached print limit.")
-            #     break
-    
-    print(f"\nTotal events with differences: {n_diff_events}")
-    print("Branches with differences found:")
-    print(list_of_branches_with_diffs)
+    n_common = len(common_events)
+    print(f"\nTotal events with differences: {n_diff_events} / {n_common}")
+    print("\nEvents differing per branch:")
+    for branch_name, n_diff in sorted(n_diff_per_branch.items(), key=lambda kv: -kv[1]):
+        frac = 100. * n_diff / n_common if n_common else 0.
+        print(f"  {branch_name:24s} {n_diff:6d}  ({frac:5.1f}%)")
 
 
 def main():
@@ -126,7 +148,8 @@ def main():
     tree_name = "events"
 
     # First we get the sets of run and event number from each file and find the overlap (=common events)
-    file1 = "/eos/user/l/llambrec/aleph-data/ntuples-withks/eventlevel/mc/output_qqb_1.root"
+    file1 = "/eos/user/l/llambrec/aleph-data/ntuples-withks/eventlevel/mc/output_qqb_1.root" # for training? 
+    # file1 = "/eos/user/l/llambrec/aleph-data/ntuples-withksloose/eventlevel/mc/output_qqb_1.root" #for V0 plots, no pointing angle cut!
     run_branch_1 = "runNumber"
     event_branch_1 = "eventNumber"
 
@@ -136,7 +159,8 @@ def main():
     print(f"File1: {len(events1)} events")
 
     # file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/v09_ntuple_valid/ntuple_valid_tester_5.root" 
-    file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/v15_SV_test/Zbb.root" 
+    # file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/v15_SV_test/Zbb.root" 
+    file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/test_fixinclv0s_17july/Zbb.root" 
     run_branch_2 = "run_number"
     event_branch_2 = "event_number"
 
@@ -167,12 +191,12 @@ def main():
         # "n_selected_tracks":("Event_nSelectedTracks", "n_tracks_sel"),
         # # "n_selected_tracks_vertex":("", "n_trackstates_sel"), #luka doesnt store this?
         # # output of primary vertex fit
-        # "n_primary_tracks":("Event_nPrimaryTracks", "n_primary_tracks"),
-        # "n_secondary_tracks":("Event_nSecondaryTracks", "n_secondary_tracks"),
+        "n_primary_tracks":("Event_nPrimaryTracks", "n_primary_tracks"),
+        "n_secondary_tracks":("Event_nSecondaryTracks", "n_secondary_tracks"),
         # # vertex position
-        # "vertex_x":("PV_x", "Vertex_refit_x"),
-        # "vertex_y":("PV_y", "Vertex_refit_y"),
-        # "vertex_z":("PV_z", "Vertex_refit_z"),
+        "vertex_x":("PV_x", "Vertex_refit_x"),
+        "vertex_y":("PV_y", "Vertex_refit_y"),
+        "vertex_z":("PV_z", "Vertex_refit_z"),
         # #truth vertex
         # "gen_vertex_x":("GenPV_x", "gen_vertex_x"),
         # "gen_vertex_y":("GenPV_y", "gen_vertex_y"),
@@ -182,6 +206,8 @@ def main():
         "n_sv_jets":("Jets_nSV", "n_sv_jets"),
         "sv_ntracks":("SecondaryVertices_nTracks", "sv_ntracks"),
         "n_v0_event":("Event_nV0Candidates", "n_v0_event"),
+        "v0_invM":("V0Candidates_mass", "v0_invM"),
+        # 
 
 
 
