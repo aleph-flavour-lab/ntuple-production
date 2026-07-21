@@ -240,7 +240,13 @@ class Analysis():
 
         chi2max = 5. # the maximum chi2 under which tracks are compatible with vertex fit 
 
-        df = df.Define("RecoedPrimaryTracks_looseBS", "VertexFitterSimple::get_PrimaryTracks(trackstates_selected_for_vertexfit_flipped, true, {},{},{},0.,0.,0., {})".format(res_x_loose/10., res_y_loose/10., res_z_loose*1E03, chi2max)) # 10um as unit (x,y), 1cm as unit (z)
+        # Guard: with fewer than 2 IP-preselected tracks there is no meaningful primary vertex,
+        # so return NO primary tracks (the PV fit then falls back to the dummy beamspot vertex).
+        # FCCAnalyses' get_PrimaryTracks instead returns `seltracks` unchanged, i.e. the single
+        # track - that is what the reference wrapper (getPrimaryTracks in analyzer_pvtools.cxx,
+        # `if(tracksToUse.size() < 2){ return primaryTracks; }`) guards against. Without this we
+        # get nPrim=1 where the reference has nPrim=0 (~1400 events / 1.05M in the full sweep).
+        df = df.Define("RecoedPrimaryTracks_looseBS", "trackstates_selected_for_vertexfit_flipped.size() < 2 ? ROOT::VecOps::RVec<edm4hep::TrackState>{} : VertexFitterSimple::get_PrimaryTracks(trackstates_selected_for_vertexfit_flipped, true, {},{},{},0.,0.,0., {})".format(res_x_loose/10., res_y_loose/10., res_z_loose*1E03, chi2max)) # 10um as unit (x,y), 1cm as unit (z)
         df = df.Define("VertexObject_looseBS", "VertexFitterSimple::VertexFitter_Tk(1, RecoedPrimaryTracks_looseBS, true, {},{},{},0.,0.,0.)".format(res_x_loose/10., res_y_loose/10., res_z_loose*1E03)) # 10um as unit (x,y), 1cm as unit (z)
         df = df.Define("Vertex_refit_looseBS", "VertexingUtils::get_VertexData(VertexObject_looseBS)")
         df = df.Define("Vertex_refit_tlv", "TLorentzVector(Vertex_refit_looseBS.position.x, Vertex_refit_looseBS.position.y, Vertex_refit_looseBS.position.z, 0.)")
@@ -265,16 +271,19 @@ class Analysis():
         # df = df.Define("Vertex_refit_z_all_tracks", "Vertex_refit_looseBS_all_tracks.position.z")
 
         # for reference: vertex as stored - can be removed?
+        # guarded: the Vertices.size()>0 filter below is disabled (Luka does not apply it), so this
+        # must not index an empty collection. Currently 'pv' is not snapshotted and RDF never
+        # evaluates it, but keep the guard so adding it to the output later cannot crash.
         df = df.Define(
             "pv",
-            "TLorentzVector(Vertices[0].position.x, Vertices[0].position.y, Vertices[0].position.z, 0.0)",
+            "Vertices.size() > 0 ? TLorentzVector(Vertices[0].position.x, Vertices[0].position.y, Vertices[0].position.z, 0.0) : TLorentzVector(0., 0., 0., 0.)",
         )
         df = df.Define("VertexX", "Vertices.position.x")
         df = df.Define("VertexY", "Vertices.position.y")
         df = df.Define("VertexZ", "Vertices.position.z")
 
         # TEST FILTER         
-        df = df.Filter("Vertices.size() > 0")  # to remove eventually
+        # df = df.Filter("Vertices.size() > 0")  # to remove eventually
 
 
         # gen level vertex for checks, fill dummies for data

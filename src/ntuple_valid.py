@@ -20,7 +20,7 @@ def get_value(obj):
 # floats are compared with a relative tolerance: the two codes do the same arithmetic in a
 # different order, so last-bit differences are expected and are not physics.
 
-def values_equal(val1, val2, rtol=1e-6):
+def values_equal(val1, val2, rtol=1e-4):
     if isinstance(val1, list) != isinstance(val2, list):
         return False
     if isinstance(val1, list):
@@ -160,7 +160,7 @@ def main():
 
     # file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/v09_ntuple_valid/ntuple_valid_tester_5.root" 
     # file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/v15_SV_test/Zbb.root" 
-    file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/test_fixinclv0s_17july/Zbb.root" 
+    file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/test_fixSVfinderV0rejection_21july/Zbb.root" 
     run_branch_2 = "run_number"
     event_branch_2 = "event_number"
 

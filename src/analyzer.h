@@ -885,8 +885,11 @@ get_SV_event_ALEPH(
         10., 10., 5., // chi2_cut, invM_cut, chi2Tr_cut
         1.5,           // solenoidBz [T]
         dR_cut,       // dR_cut for prefiltering
-        true,          // require opposite-charge seed pairs (matches ntuplizer)
-        true           // tight V0 constraints in per-pair seed screening (matches ntuplizer)
+        true,          // require opposite-charge seed pairs (matches FCCAnalyses@3a4de97 VertexSeed_best)
+        false          // LOOSE V0 constraints in per-pair seed screening.
+                       // FCCAnalyses@3a4de97 VertexSeed_best does isV0(tr_pair, PV, false) -- explicitly
+                       // commented "V0 rejection (loose)" -- while the track-level V0rejection_tight uses
+                       // tight. Two different tightnesses; we previously had tight in both.
     );
 }
 
