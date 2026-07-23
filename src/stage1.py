@@ -1,4 +1,5 @@
 
+import os
 from argparse import ArgumentParser
 
 class Analysis():
@@ -230,15 +231,36 @@ class Analysis():
 
         # ===== VERTEX
 
-        # run primary vertex fit using FCCAna native fitter 
-        # IMPORTANT: only for simulation rn, to add data input values TODO !!!
+        # run primary vertex fit using FCCAna native fitter
 
-        # Luka's loose BS constraints from looking at data 
+        # Luka's loose BS constraints from looking at data
         res_x_loose = 200. # in um
         res_y_loose = 100. # in um
         res_z_loose = 2. # in cm
 
-        chi2max = 5. # the maximum chi2 under which tracks are compatible with vertex fit 
+        chi2max = 5. # the maximum chi2 under which tracks are compatible with vertex fit
+
+        # Beamspot POSITION (the widths above are its size; this is its centre).
+        # In simulation the beamspot is at the origin by construction. In data it is offset by
+        # ~0.6 mm in x and ~0.2 mm in y, i.e. 2-3x the transverse widths used as the constraint,
+        # so leaving it at 0 would bias the fit. Values are per-run, in the same 10um units as
+        # the widths (see AlephSelection::get_beamspot in analyzer.h).
+        # The json path is passed explicitly and lives on EOS: resolving it relative to the header
+        # would break on condor, where analyzer.h is copied to the worker node and AFS may not be
+        # readable. A copy is kept in the repo at Aleph/data/ as the version-controlled reference -
+        # keep the two in sync. Override at runtime with $ALEPH_BEAMSPOT_JSON if needed.
+        if self.ana_args.doData:
+            beamspot_json = os.environ.get(
+                "ALEPH_BEAMSPOT_JSON",
+                "/eos/experiment/fcc/ee/analyses/case-studies/aleph/utils/beamspot_position_data/beamspot.json")
+            df = df.Define("BeamspotVec", 'AlephSelection::get_beamspot(run_number[0], true, "{}")'.format(beamspot_json))
+            df = df.Define("Beamspot_x", "BeamspotVec.X()")
+            df = df.Define("Beamspot_y", "BeamspotVec.Y()")
+            df = df.Define("Beamspot_z", "BeamspotVec.Z()")
+        else:
+            df = df.Define("Beamspot_x", "0.0")
+            df = df.Define("Beamspot_y", "0.0")
+            df = df.Define("Beamspot_z", "0.0")
 
         # Guard: with fewer than 2 IP-preselected tracks there is no meaningful primary vertex,
         # so return NO primary tracks (the PV fit then falls back to the dummy beamspot vertex).
@@ -247,8 +269,8 @@ class Analysis():
         # `if(tracksToUse.size() < 2){ return primaryTracks; }`) guards against. Without this we
         # get nPrim=1 where the reference has nPrim=0 (~1400 events / 1.05M in the full sweep).
         # note: the {{}} is an escaped literal {} for str.format - it is the empty RVec, not a placeholder
-        df = df.Define("RecoedPrimaryTracks_looseBS", "trackstates_selected_for_vertexfit_flipped.size() < 2 ? ROOT::VecOps::RVec<edm4hep::TrackState>{{}} : VertexFitterSimple::get_PrimaryTracks(trackstates_selected_for_vertexfit_flipped, true, {},{},{},0.,0.,0., {})".format(res_x_loose/10., res_y_loose/10., res_z_loose*1E03, chi2max)) # 10um as unit (x,y), 1cm as unit (z)
-        df = df.Define("VertexObject_looseBS", "VertexFitterSimple::VertexFitter_Tk(1, RecoedPrimaryTracks_looseBS, true, {},{},{},0.,0.,0.)".format(res_x_loose/10., res_y_loose/10., res_z_loose*1E03)) # 10um as unit (x,y), 1cm as unit (z)
+        df = df.Define("RecoedPrimaryTracks_looseBS", "trackstates_selected_for_vertexfit_flipped.size() < 2 ? ROOT::VecOps::RVec<edm4hep::TrackState>{{}} : VertexFitterSimple::get_PrimaryTracks(trackstates_selected_for_vertexfit_flipped, true, {},{},{}, Beamspot_x, Beamspot_y, Beamspot_z, {})".format(res_x_loose/10., res_y_loose/10., res_z_loose*1E03, chi2max)) # 10um as unit (x,y), 1cm as unit (z)
+        df = df.Define("VertexObject_looseBS", "VertexFitterSimple::VertexFitter_Tk(1, RecoedPrimaryTracks_looseBS, true, {},{},{}, Beamspot_x, Beamspot_y, Beamspot_z)".format(res_x_loose/10., res_y_loose/10., res_z_loose*1E03)) # 10um as unit (x,y), 1cm as unit (z)
         df = df.Define("Vertex_refit_looseBS", "VertexingUtils::get_VertexData(VertexObject_looseBS)")
         df = df.Define("Vertex_refit_tlv", "TLorentzVector(Vertex_refit_looseBS.position.x, Vertex_refit_looseBS.position.y, Vertex_refit_looseBS.position.z, 0.)")
         # for retrieving secondary tracks, use the full list of selected tracks 
@@ -598,6 +620,9 @@ class Analysis():
             #refitted vertices
             "n_primary_tracks",
             "n_secondary_tracks",
+            "Beamspot_x",
+            "Beamspot_y",
+            "Beamspot_z",
             "Vertex_refit_x",
             "Vertex_refit_y",
             "Vertex_refit_z",

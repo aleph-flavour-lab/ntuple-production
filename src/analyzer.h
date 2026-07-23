@@ -28,6 +28,12 @@
 #include <bitset>
 #include <cmath>
 #include <vector>
+#include <map>
+#include <mutex>
+#include <fstream>
+#include <string>
+#include <cstdlib>
+#include <nlohmann/json.hpp>
 #include <ROOT/RVec.hxx>
 
 #include "FCCAnalyses/JetConstituentsUtils.h"
@@ -737,6 +743,88 @@ flipD0_copy(const ROOT::VecOps::RVec<edm4hep::TrackState>& tracks) {
   return out;
 }
 
+
+
+// ===========================================================================
+// Beamspot position (data only)
+// ===========================================================================
+//
+// ALEPH's beamspot is offset from the origin by ~0.6 mm in x and ~0.2 mm in y.
+// That is 2-3x the transverse beamspot widths used to constrain the primary
+// vertex fit, so for DATA the position must be supplied; leaving it at the
+// origin biases the constraint. In simulation the beamspot is at the origin by
+// construction, so this is not needed there.
+//
+// One entry point: get_beamspot(run). It loads and caches data/beamspot.json on
+// first use and returns the position for that run, or (0,0,0) if the run is not
+// listed (same fallback as the reference implementation).
+//
+// Units: the json stores cm. The FCCAnalyses vertex fitters want the beamspot
+// position in the same units as their widths, which we pass as "10 um"
+// (res_x_loose/10. etc. in stage1.py), hence the cm -> 10um factor of 1e3.
+// Pass `in_10um = false` to get plain cm back instead.
+//
+// The json path resolves in this order:
+//   1. the `path` argument, if non-empty
+//   2. $ALEPH_BEAMSPOT_JSON
+//   3. <this repo>/data/beamspot.json
+//
+TVector3 get_beamspot(int run, bool in_10um = true, const std::string &path = "")
+{
+  // Loaded once on first call and cached. The static initialiser is thread-safe
+  // (C++11 magic statics), which matters because RDataFrame runs multi-threaded.
+  // Note: only the FIRST call's `path` is used - later calls reuse the cache.
+  static const std::map<int, TVector3> coords = [path]() {
+    std::map<int, TVector3> m;   // cm; left empty if anything goes wrong -> origin everywhere
+
+    std::string file = path;
+    if (file.empty()) {
+      if (const char *env = std::getenv("ALEPH_BEAMSPOT_JSON")) file = env;
+    }
+    if (file.empty()) {
+      // default: alongside this header, ../data/beamspot.json
+      std::string self = __FILE__;
+      size_t slash = self.find_last_of('/');
+      file = (slash == std::string::npos ? std::string(".") : self.substr(0, slash))
+             + "/../data/beamspot.json";
+    }
+
+    std::ifstream in(file);
+    if (!in.good()) {
+      std::cerr << "WARNING [get_beamspot]: could not open '" << file
+                << "' - using a beamspot at the origin for every run. "
+                << "That is correct for simulation but WRONG for data." << std::endl;
+      return m;
+    }
+    try {
+      nlohmann::json j;
+      in >> j;
+      for (auto it = j.begin(); it != j.end(); ++it) {
+        const auto &v = it.value();
+        if (!v.contains("x") || !v.contains("y") || !v.contains("z")) continue;
+        m[std::stoi(it.key())] =
+            TVector3(v["x"].get<double>(), v["y"].get<double>(), v["z"].get<double>());
+      }
+    } catch (const std::exception &e) {
+      std::cerr << "WARNING [get_beamspot]: failed to parse '" << file
+                << "' (" << e.what() << ") - using the origin for every run." << std::endl;
+      return std::map<int, TVector3>{};
+    }
+    std::cout << "INFO [get_beamspot]: loaded " << m.size()
+              << " runs from " << file << std::endl;
+    return m;
+  }();
+
+  TVector3 bs(0., 0., 0.);   // fallback: unknown run, or file missing/unparsable
+  auto it = coords.find(run);
+  if (it != coords.end()) bs = it->second;
+  return in_10um ? bs * 1e3 : bs;   // cm -> 10 um
+}
+
+// convenience accessors so stage1.py can Define scalar columns directly
+double get_beamspot_x(int run) { return get_beamspot(run).X(); }
+double get_beamspot_y(int run) { return get_beamspot(run).Y(); }
+double get_beamspot_z(int run) { return get_beamspot(run).Z(); }
 
 
 auto cast_constituent = [](const auto &jcs, auto &&meth)
