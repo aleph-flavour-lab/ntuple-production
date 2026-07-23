@@ -1,27 +1,68 @@
 #!/usr/bin/env python3
 
+import os
 import sys
+import glob
+import math
 import ROOT
 
 # helper function to read branches
+# note: several branches are nested RVec<RVec<...>> (per jet, per vertex), so a single
+#       [0] does not reach the scalars. convert the whole thing to plain python lists:
+#       comparing two RVecs with != is element-wise and returns an RVec, which is always
+#       truthy when non-empty, i.e. every such branch would be reported as different.
 
 def get_value(obj):
-    if hasattr(obj, "__len__") and not isinstance(obj, (int, float)):
-        if len(obj) == 0:
-            return None
-        return obj[0]
+    if hasattr(obj, "__len__") and not isinstance(obj, (str, bytes)):
+        return [get_value(x) for x in obj]
     return obj
+
+
+# helper function to compare two values read by get_value.
+# floats are compared with a relative tolerance: the two codes do the same arithmetic in a
+# different order, so last-bit differences are expected and are not physics.
+
+def values_equal(val1, val2, rtol=1e-4):
+    if isinstance(val1, list) != isinstance(val2, list):
+        return False
+    if isinstance(val1, list):
+        if len(val1) != len(val2):
+            return False
+        return all(values_equal(a, b, rtol) for a, b in zip(val1, val2))
+    if isinstance(val1, float) or isinstance(val2, float):
+        if math.isnan(val1) and math.isnan(val2):
+            return True
+        return abs(val1 - val2) <= rtol * max(1.0, abs(val1), abs(val2))
+    return val1 == val2
+
+
+# helper to get a tree from either a single .root file or a directory of chunk_*.root
+# (the batch productions are chunked, e.g. <tag>/Zbb/QQB/chunk_*.root, so a plain TFile
+# is not enough). Returns the tree; the caller must keep the returned owner alive, else
+# ROOT garbage-collects the file/chain underneath the tree.
+def open_tree(path, tree_name):
+    if os.path.isdir(path):
+        chain = ROOT.TChain(tree_name)
+        chunks = sorted(glob.glob(os.path.join(path, "**", "chunk_*.root"), recursive=True))
+        if not chunks:
+            raise RuntimeError(f"No chunk_*.root found under directory: {path}")
+        for c in chunks:
+            chain.Add(c)
+        print(f"  chained {len(chunks)} chunks from {path}")
+        return chain, chain
+
+    f = ROOT.TFile.Open(path)
+    if not f or f.IsZombie():
+        raise RuntimeError(f"Cannot open file: {path}")
+    tree = f.Get(tree_name)
+    if not tree:
+        raise RuntimeError(f"Cannot find tree '{tree_name}' in {path}")
+    return f, tree
 
 
 # helper function which returns the unique run & event_number combinations in a file as python set
 def load_events(filename, tree_name, run_branch, event_branch, do_flavour_filter = False, flavour_val = 5):
-    file = ROOT.TFile.Open(filename)
-    if not file or file.IsZombie():
-        raise RuntimeError(f"Cannot open file: {filename}")
-
-    tree = file.Get(tree_name)
-    if not tree:
-        raise RuntimeError(f"Cannot find tree '{tree_name}' in {filename}")
+    owner, tree = open_tree(filename, tree_name)   # keep `owner` referenced until we are done
 
     events = set()
 
@@ -51,7 +92,7 @@ def load_events(filename, tree_name, run_branch, event_branch, do_flavour_filter
 
         events.add((int(run), int(evt)))
 
-    file.Close()
+    del owner   # release the TFile / TChain
     return events
 
 # function that compares the common events branch by branch
@@ -66,13 +107,10 @@ def compare_events(filepath1, filepath2,
     print("file1:", filepath1)
     print("file2:", filepath2)
 
-    #open files again
-    file1 = ROOT.TFile.Open(filepath1)
-    file2 = ROOT.TFile.Open(filepath2)
-
-    # get the tree in each file
-    tree1 = file1.Get(tree_name)
-    tree2 = file2.Get(tree_name)
+    # open again - either a single file or a directory of chunks
+    # (owner1/owner2 must stay in scope, they keep the TFile/TChain alive)
+    owner1, tree1 = open_tree(filepath1, tree_name)
+    owner2, tree2 = open_tree(filepath2, tree_name)
 
     # Build ROOT internal indices
     print("Building indices...")
@@ -80,7 +118,9 @@ def compare_events(filepath1, filepath2,
     tree2.BuildIndex(branch_map["run"][1], branch_map["event"][1])
 
     n_diff_events = 0
-    list_of_branches_with_diffs = []
+    # count in how many events each branch differs, so the summary shows where the
+    # disagreement actually sits instead of only which branches ever differed
+    n_diff_per_branch = {name: 0 for name in branch_map}
 
     for run_number, event_number in common_events:
         entry_number_file1 = tree1.GetEntryNumberWithIndex(run_number, event_number)
@@ -96,29 +136,28 @@ def compare_events(filepath1, filepath2,
             val1 = get_value(getattr(tree1, branch_1))
             val2 = get_value(getattr(tree2, branch_2))
 
-            # print(branch_name, val1, val2) #DEBUG REMOVE LATER
+            if values_equal(val1, val2):
+                continue
 
-            if val1 != val2:
-                if not event_has_diff:
-                    if n_diff_events < max_print:
-                        print(f"\nDifference in event {run_number} {event_number}")
-                    event_has_diff = True
-                    n_diff_events += 1
+            n_diff_per_branch[branch_name] += 1
 
-                print(f"  Branch mismatch: {branch_1} vs {branch_2}")
+            if not event_has_diff:
+                event_has_diff = True
+                n_diff_events += 1
+                if n_diff_events <= max_print:
+                    print(f"\nDifference in event {run_number} {event_number}")
+
+            if n_diff_events <= max_print:
+                print(f"  Branch mismatch: {branch_1} vs {branch_2} in event {event_number}")
                 print(f"    file1 (Luka): {val1}")
                 print(f"    file2 (ours): {val2}")
 
-                if not branch_name in list_of_branches_with_diffs:
-                    list_of_branches_with_diffs.append(branch_name)
-            
-            # if n_diff_events >= max_print:
-            #     print("\nReached print limit.")
-            #     break
-    
-    print(f"\nTotal events with differences: {n_diff_events}")
-    print("Branches with differences found:")
-    print(list_of_branches_with_diffs)
+    n_common = len(common_events)
+    print(f"\nTotal events with differences: {n_diff_events} / {n_common}")
+    print("\nEvents differing per branch:")
+    for branch_name, n_diff in sorted(n_diff_per_branch.items(), key=lambda kv: -kv[1]):
+        frac = 100. * n_diff / n_common if n_common else 0.
+        print(f"  {branch_name:24s} {n_diff:6d}  ({frac:5.1f}%)")
 
 
 def main():
@@ -126,7 +165,8 @@ def main():
     tree_name = "events"
 
     # First we get the sets of run and event number from each file and find the overlap (=common events)
-    file1 = "/eos/user/l/llambrec/aleph-data/ntuples-withks/eventlevel/mc/output_qqb_1.root"
+    file1 = "/eos/user/l/llambrec/aleph-data/ntuples-withks/eventlevel/mc/output_qqb_1.root" # for training? 
+    # file1 = "/eos/user/l/llambrec/aleph-data/ntuples-withksloose/eventlevel/mc/output_qqb_1.root" #for V0 plots, no pointing angle cut!
     run_branch_1 = "runNumber"
     event_branch_1 = "eventNumber"
 
@@ -136,7 +176,10 @@ def main():
     print(f"File1: {len(events1)} events")
 
     # file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/v09_ntuple_valid/ntuple_valid_tester_5.root" 
-    file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/v15_SV_test/Zbb.root" 
+    # file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/v15_SV_test/Zbb.root" 
+    # either a single .root file, or a directory of chunks (batch productions are chunked,
+    # the directory is chained automatically - see open_tree)
+    file2 = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/1994/zqq/stage1/v17_SVsFix_w_data/Zbb"
     run_branch_2 = "run_number"
     event_branch_2 = "event_number"
 
@@ -163,16 +206,21 @@ def main():
         #"name":"(name_file1, name_file2)",
         "run":("runNumber", "run_number"),
         "event":("eventNumber", "event_number"),
-        #input to the primary vertex fit:
-        # "n_selected_tracks":("Event_nSelectedTracks", "n_tracks_sel"),
-        # # "n_selected_tracks_vertex":("", "n_trackstates_sel"), #luka doesnt store this?
-        # # output of primary vertex fit
-        # "n_primary_tracks":("Event_nPrimaryTracks", "n_primary_tracks"),
-        # "n_secondary_tracks":("Event_nSecondaryTracks", "n_secondary_tracks"),
+        # input track collections (what goes INTO the primary vertex fit).
+        # These should agree in every event - if they don't, the disagreement is upstream of
+        # the vertex fit and nothing below is meaningful.
+        "n_tracks_all":("Event_nTracks", "n_tracks_all"),
+        "n_selected_tracks":("Event_nSelectedTracks", "n_tracks_sel"),
+        # note: our n_tracks_sel_vertexfit / n_trackstates_sel (tracks passing the |D0|,|Z0|
+        # preselection, i.e. the actual fit input) have no equivalent in Luka's ntuples -
+        # he applies that cut inside getPrimaryTracks and never stores the intermediate count.
+        # output of primary vertex fit
+        "n_primary_tracks":("Event_nPrimaryTracks", "n_primary_tracks"),
+        "n_secondary_tracks":("Event_nSecondaryTracks", "n_secondary_tracks"),
         # # vertex position
-        # "vertex_x":("PV_x", "Vertex_refit_x"),
-        # "vertex_y":("PV_y", "Vertex_refit_y"),
-        # "vertex_z":("PV_z", "Vertex_refit_z"),
+        "vertex_x":("PV_x", "Vertex_refit_x"),
+        "vertex_y":("PV_y", "Vertex_refit_y"),
+        "vertex_z":("PV_z", "Vertex_refit_z"),
         # #truth vertex
         # "gen_vertex_x":("GenPV_x", "gen_vertex_x"),
         # "gen_vertex_y":("GenPV_y", "gen_vertex_y"),
@@ -182,6 +230,8 @@ def main():
         "n_sv_jets":("Jets_nSV", "n_sv_jets"),
         "sv_ntracks":("SecondaryVertices_nTracks", "sv_ntracks"),
         "n_v0_event":("Event_nV0Candidates", "n_v0_event"),
+        "v0_invM":("V0Candidates_mass", "v0_invM"),
+        # 
 
 
 
