@@ -43,7 +43,10 @@ Output files will be in: `/eos/experiment/fcc/ee/analyses/case-studies/aleph/pro
 
 `--year` and `--fraction` is also supported as an argument here. 
 
-
+### Run on batch:
+```
+fccanalysis submit stage1.py -- --tag VXX-XX --MCflavour X --batch --chunks X
+```
 
 ### STAGE 2:
 
