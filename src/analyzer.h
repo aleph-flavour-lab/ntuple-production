@@ -22,6 +22,7 @@
     df = df.Define("isMu", "FCCAnalyses::AlephSelection::get_isMu(JetConstituents)")
            .Define("n_muons_per_jet", "Sum(isMu)");
 */
+#include "dedx_valid.h"
 #include "edm4hep/ReconstructedParticleCollection.h"
 #include "edm4hep/EventHeaderCollection.h"
 #include <set>
@@ -45,6 +46,7 @@
 #include "FCCAnalyses/MCParticle.h"
 #include "FCCAnalyses/VertexingUtils.h"
 #include "FCCAnalyses/VertexFinderLCFIPlus.h" 
+#include "aleph_units.h"
 
 #include "TVector3.h"
 
@@ -366,6 +368,42 @@ select_tracks_impactparameters(const SelectedTracks& input,
 }
 
 
+// Same pre-selection with |D0|, |Z0| re-referenced to the beamspot b [cm]
+// instead of the origin. The raw ALEPH/FRFT d0 sign convention is opposite to
+// EDM4HEP, hence the +n.b sign. The stored track states are unchanged.
+SelectedTracks
+select_tracks_impactparameters_bs(const SelectedTracks& input,
+                                  float d0_upper_bound,
+                                  float z0_upper_bound,
+                                  float bsx,
+                                  float bsy,
+                                  float bsz)
+{
+    SelectedTracks selected;
+
+    for (size_t i = 0; i < input.tracks.size(); ++i) {
+
+        const auto& track = input.tracks[i];
+        const auto& state = input.trackStates[i];
+
+        const double cphi = std::cos(state.phi);
+        const double sphi = std::sin(state.phi);
+
+        const double s   = bsx * cphi + bsy * sphi;
+        const double d0p = state.D0 - bsx * sphi + bsy * cphi + 0.5 * state.omega * s * s;
+        const double z0p = state.Z0 - bsz + state.tanLambda * s;
+
+        if (std::abs(d0p) > d0_upper_bound) continue;
+        if (std::abs(z0p) > z0_upper_bound) continue;
+
+        selected.tracks.push_back(track);
+        selected.trackStates.push_back(state);
+    }
+
+    return selected;
+}
+
+
 
 // --------------------------------------
 // Event primary vertex reconstruction
@@ -590,6 +628,7 @@ struct build_constituents_dEdx_PIDhypo{
              const rv::RVec<edm4hep::RecDqdxData> &dEdxCollection,
              const rv::RVec<int> &_dEdxIndicesCollection, 
              const std::vector<std::vector<int>> &jet_indices,
+             const rv::RVec<edm4hep::TrackState> &trackStates,
              bool is_wires) const
     { 
         rv::RVec<rv::RVec<edm4hep::RecDqdxData>> dedx_constituents;
@@ -637,13 +676,21 @@ struct build_constituents_dEdx_PIDhypo{
                   if (track_index_to_dEdx.count(track_index)) {
                     const auto &dEdx = track_index_to_dEdx[track_index];
 
-                    //get the PID hypotheses p-values (= array of five entries fo e, mu, pi, K, p)
-                    const auto PID_pvals_array = all_hypotheses_pvalues(tlv_recoPart.P(), dEdx.dQdx.value, dEdx.dQdx.error, is_wires);
+                    // A failed leg stores the track's omega as its value;
+                    // dQdx.type is the pad-leg status only, so it is not used.
+                    const float v = dEdx.dQdx.value;
+                    const float omega_sentinel =
+                        (track_index >= 0 &&
+                         track_index < static_cast<int>(trackStates.size()))
+                            ? trackStates[track_index].omega
+                            : v; // unknown track: treat as invalid
+                    const bool valid = FCCAnalyses::AlephDedx::dEdxValid(
+                        v, dEdx.dQdx.error, omega_sentinel);
 
-                    //check wether the measurement is valid, if not fill default value
-                    if (dEdx.dQdx.type == 0) {
-                      jet_dEdx.push_back(track_index_to_dEdx[track_index]);
-                      jet_pid_array.push_back(PID_pvals_array);
+                    if (valid) {
+                      jet_dEdx.push_back(dEdx);
+                      jet_pid_array.push_back(all_hypotheses_pvalues(
+                          tlv_recoPart.P(), v, dEdx.dQdx.error, is_wires));
                     }
                     else {
                       jet_dEdx.push_back(dEdx_dummy_obj);
@@ -889,6 +936,187 @@ get_ptrel_log_cluster(const rv::RVec<fastjet::PseudoJet> &jets,
   return out;
 }
 
+// --- constituent track parameters w.r.t. the primary vertex ------------------
+// Same algebra as ReconstructedParticle2Track::XPtoPar_dxy/dz/phi but with
+// every length in cm and every curvature in 1/cm (the upstream helpers mix m and
+// mm). `tracks` must be ordered by the RecoParticle->Track relation; neutral
+// particles fall outside it and get -9.
+struct TrackParamsAtPV {
+  rv::RVec<FCCAnalysesJetConstituentsData> dxy, dz, phi0, C, ct;
+};
+
+inline TrackParamsAtPV
+get_constituent_trackParamsAtPV(const rv::RVec<FCCAnalysesJetConstituents> &jcs,
+                                const rv::RVec<edm4hep::TrackState> &tracks,
+                                const TLorentzVector &V, double Bz)
+{
+  TrackParamsAtPV out;
+  for (const auto &jet_csts : jcs) {
+    auto &odxy = out.dxy.emplace_back();
+    auto &odz  = out.dz.emplace_back();
+    auto &ophi = out.phi0.emplace_back();
+    auto &oC   = out.C.emplace_back();
+    auto &oct  = out.ct.emplace_back();
+    for (const auto &rp : jet_csts) {
+      // tracks_begin != tracks_end is the "has a track" test: a neutral's
+      // tracks_begin is still in range, so the bare range check reads ANOTHER
+      // particle's track and propagates NaN into dxy/dz and the btag branches.
+      if (!(rp.tracks_begin != rp.tracks_end && rp.tracks_begin < tracks.size())) {
+        odxy.push_back(-9.); odz.push_back(-9.); ophi.push_back(-9.);
+        oC.push_back(-9.); oct.push_back(-9.);
+        continue;
+      }
+      const auto &ts = tracks.at(rp.tracks_begin);
+      const float D0_wrt0 = ts.D0, Z0_wrt0 = ts.Z0, phi0_wrt0 = ts.phi;
+      TVector3 X(-D0_wrt0 * TMath::Sin(phi0_wrt0), D0_wrt0 * TMath::Cos(phi0_wrt0), Z0_wrt0);
+      TVector3 x = X - V.Vect();
+      // For a V0 daughter the energy-flow momentum is the V0-refit momentum at
+      // the decay vertex, not at the perigee: keep its magnitude, take the
+      // direction from the perigee parameters so that X and p match.
+      const double pmag = TVector3(rp.momentum.x, rp.momentum.y, rp.momentum.z).Mag();
+      const double tl = ts.tanLambda;
+      const double ptp = pmag / TMath::Sqrt(1.0 + tl * tl);
+      TVector3 p(ptp * TMath::Cos(phi0_wrt0), ptp * TMath::Sin(phi0_wrt0), ptp * tl);
+      const double a = -rp.charge * Bz * AlephUnits::kPtPerTeslaCm;
+      const double pt = p.Pt();
+      const double r2 = x(0) * x(0) + x(1) * x(1);
+      const double cross = x(0) * p(1) - x(1) * p(0);
+      const double disc = pt * pt - 2 * a * cross + a * a * r2;
+      // T is NaN for disc <= 0; upstream guards the discriminant for dxy only,
+      // so dz/phi0 keep using it unguarded and dxy stays at its -9 sentinel.
+      const double T = TMath::Sqrt(disc);
+      double D = -9.;
+      if (disc > 0)
+        D = (pt < 10.0) ? (T - pt) / a : (-2 * cross + a * r2) / (T + pt);
+      odxy.push_back(D);
+      {
+        const double C = a / (2 * pt);
+        const double Dz = (pt < 10.0) ? (T - pt) / a : (-2 * cross + a * r2) / (T + pt);
+        double B = C * TMath::Sqrt(TMath::Max(r2 - Dz * Dz, 0.0) / (1 + 2 * C * Dz));
+        if (TMath::Abs(B) > 1.) B = TMath::Sign(1, B);
+        const double st = TMath::ASin(B) / C;
+        const double ct = p(2) / pt;
+        const double dot = x(0) * p(0) + x(1) * p(1);
+        odz.push_back((dot > 0.0) ? x(2) - ct * st : x(2) + ct * st);
+      }
+      ophi.push_back(TMath::ATan2((p(1) - a * x(0)) / T, (p(0) + a * x(1)) / T));
+      // Curvature 1/(2R) [1/cm] with the sign of the charge, and cot(theta): both
+      // taken straight from the fitted track state rather than from the energy-flow momentum.
+      oC.push_back(std::copysign(0.5 * std::abs(ts.omega), rp.charge));
+      oct.push_back(ts.tanLambda);
+    }
+  }
+  return out;
+}
+
+// --- constituent covariance entry -------------------------------------------
+// covMatrix[k] of the constituent's own track state, with the begin!=end test
+// that the upstream getters lack: a neutral's tracks_begin can be in range and
+// would otherwise return another particle's covariance instead of -9.
+inline rv::RVec<FCCAnalysesJetConstituentsData>
+get_constituent_trackCov(const rv::RVec<FCCAnalysesJetConstituents> &jcs,
+                         const rv::RVec<edm4hep::TrackState> &tracks, int k)
+{
+  rv::RVec<FCCAnalysesJetConstituentsData> out;
+  for (const auto &jet_csts : jcs) {
+    auto &o = out.emplace_back();
+    for (const auto &rp : jet_csts) {
+      if (rp.tracks_begin != rp.tracks_end && rp.tracks_begin < tracks.size())
+        o.push_back(tracks.at(rp.tracks_begin).covMatrix[k]);
+      else
+        o.push_back(-9.);
+    }
+  }
+  return out;
+}
+
+// --- constituent raw perigee parameter --------------------------------------
+// D0 (which = 0) or Z0 (which = 1) of the constituent's own track state, taken
+// as stored (origin-referenced, cm, signs of the collection passed in). Neutral
+// constituents get -9, the same guard as get_constituent_trackCov.
+inline rv::RVec<FCCAnalysesJetConstituentsData>
+get_constituent_trackParam(const rv::RVec<FCCAnalysesJetConstituents> &jcs,
+                           const rv::RVec<edm4hep::TrackState> &tracks, int which)
+{
+  rv::RVec<FCCAnalysesJetConstituentsData> out;
+  for (const auto &jet_csts : jcs) {
+    auto &o = out.emplace_back();
+    for (const auto &rp : jet_csts) {
+      if (rp.tracks_begin != rp.tracks_end && rp.tracks_begin < tracks.size())
+        o.push_back(which == 0 ? tracks.at(rp.tracks_begin).D0
+                               : tracks.at(rp.tracks_begin).Z0);
+      else
+        o.push_back(-9.);
+    }
+  }
+  return out;
+}
+
+// helpers for the two stored branches
+inline rv::RVec<FCCAnalysesJetConstituentsData>
+get_constituent_D0(const rv::RVec<FCCAnalysesJetConstituents> &jcs,
+                   const rv::RVec<edm4hep::TrackState> &tracks)
+{
+  return get_constituent_trackParam(jcs, tracks, 0);
+}
+
+inline rv::RVec<FCCAnalysesJetConstituentsData>
+get_constituent_Z0(const rv::RVec<FCCAnalysesJetConstituents> &jcs,
+                   const rv::RVec<edm4hep::TrackState> &tracks)
+{
+  return get_constituent_trackParam(jcs, tracks, 1);
+}
+
+// --- constituent distance to the jet axis -----------------------------------
+// Same algebra as JetConstituentsUtils::get_JetDistVal_clusterV, but the track
+// direction is rebuilt from the PV-referenced perigee parameters instead of the
+// energy-flow momentum, which for V0 daughters is quoted at the V0 vertex.
+inline rv::RVec<FCCAnalysesJetConstituentsData>
+get_constituent_jetDistVal(const rv::RVec<fastjet::PseudoJet> &jets,
+                           const rv::RVec<FCCAnalysesJetConstituents> &jcs,
+                           const rv::RVec<FCCAnalysesJetConstituentsData> &D0,
+                           const rv::RVec<FCCAnalysesJetConstituentsData> &Z0,
+                           const rv::RVec<FCCAnalysesJetConstituentsData> &phi0,
+                           const rv::RVec<FCCAnalysesJetConstituentsData> &ct)
+{
+  rv::RVec<FCCAnalysesJetConstituentsData> out;
+  for (size_t i = 0; i < jets.size(); ++i) {
+    auto &o = out.emplace_back();
+    TVector3 p_jet(jets[i].px(), jets[i].py(), jets[i].pz());
+    const auto &csts = jcs.at(i);
+    for (size_t j = 0; j < csts.size(); ++j) {
+      const double d0 = D0.at(i).at(j), ph = phi0.at(i).at(j);
+      if (d0 == -9) { o.push_back(-9); continue; }
+      TVector3 d(-d0 * TMath::Sin(ph), d0 * TMath::Cos(ph), Z0.at(i).at(j));
+      TVector3 p_ct(TMath::Cos(ph), TMath::Sin(ph), ct.at(i).at(j));
+      TVector3 n = p_ct.Cross(p_jet);
+      // the normal is undefined for a track collinear with the jet axis
+      if (n.Mag2() <= 0.) { o.push_back(-9); continue; }
+      o.push_back(n.Unit().Dot(d));
+    }
+  }
+  return out;
+}
+
+// Re-order a track-indexed collection through the ReconstructedParticle->Track
+// relation. tracks_begin is an offset into that relation, not a track index, and
+// the two are not parallel in the ALEPH files; after this coll.at(p.tracks_begin)
+// is the particle's own object.
+template <typename T>
+rv::RVec<T> reindexByRPLink(const rv::RVec<T> &coll,
+                            const rv::RVec<int> &rpTrackIndex) {
+  rv::RVec<T> out;
+  out.reserve(rpTrackIndex.size());
+  for (int idx : rpTrackIndex) {
+    // Out-of-range relation entry = corrupt input: fail loudly.
+    if (idx < 0 || idx >= static_cast<int>(coll.size()))
+      throw std::runtime_error(
+          "reindexByRPLink: RP->Track relation entry out of range");
+    out.push_back(coll.at(idx));
+  }
+  return out;
+}
+
 // --- per-constituent track quality -----------------------------------------
 // A ReconstructedParticle points at its track via tracks_begin; neutral
 // constituents have no track, for which we store -1 (as the reference does).
@@ -933,6 +1161,27 @@ rv::RVec<FCCAnalysesJetConstituentsData>
 get_constituent_trackChi2Norm(const rv::RVec<FCCAnalysesJetConstituents> &jcs,
                               const rv::RVec<edm4hep::TrackData> &tracks)
 { return get_constituent_trackQuality(jcs, tracks, 2); }
+
+// ORIGINAL-Tracks index of each constituent's own track, -1 when it has none:
+// the join key between the pfcand_* block and the finders' *_origIdx branches.
+// tracks_begin indexes the RP->Track relation, whose entries are track indices.
+rv::RVec<rv::RVec<int>>
+get_constituent_trackIdx(const rv::RVec<FCCAnalysesJetConstituents> &jcs,
+                         const rv::RVec<int> &rpTrackIndex)
+{
+  rv::RVec<rv::RVec<int>> out;
+  for (const auto &jet_csts : jcs) {
+    auto &o = out.emplace_back();
+    for (const auto &p : jet_csts) {
+      int val = -1;
+      size_t slot = p.tracks_begin;
+      if (p.tracks_begin != p.tracks_end && slot < rpTrackIndex.size())
+        val = rpTrackIndex.at(slot);
+      o.emplace_back(val);
+    }
+  }
+  return out;
+}
 
 // --- per-constituent subdetector hit counts --------------------------------
 // subdetectorNumber assumes inside-out ordering: 0 = VDET, 1 = ITC, 2 = TPC.
@@ -1110,6 +1359,23 @@ get_SV_event_ALEPH(
 }
 
 // utils for SV properties:
+
+// SV vertex-fit covariance component ic (packed lower triangle:
+// 0=xx 1=yx 2=yy 3=zx 4=zy 5=zz — same order as the Vertex_refit_cov_*
+// PV branches), nested per jet like the other sv_* getters.
+inline ROOT::VecOps::RVec<ROOT::VecOps::RVec<float>>
+svCovComp(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<VertexingUtils::FCCAnalysesVertex>>& sv_jets,
+    int ic)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<float>> result;
+    for (const auto& jet : sv_jets) {
+        ROOT::VecOps::RVec<float> row;
+        for (const auto& v : jet) row.push_back(v.vertex.covMatrix[ic]);
+        result.push_back(row);
+    }
+    return result;
+}
 
 // SV displacement from PV in lab frame x/y/z [mm], per jet
 ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
