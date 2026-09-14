@@ -45,6 +45,16 @@ Output files will be in: `/eos/experiment/fcc/ee/analyses/case-studies/aleph/pro
 
 The 1994 data runs listed in `run_veto.py` (unusable primary vertex, tracking-quality outliers, off-plateau solenoid field; see the file for the criteria) are vetoed before any selection. The list is an interim one from our own per-run checks, to be replaced by the official ALEPH good-run list once available; `--excludeRuns RUN [RUN ...]` adds runs to the list, `--noRunVeto` switches the list off; to reproduce a production made with an explicit run list pass both. Both switches are data-only and rejected in MC mode. The veto is an event filter, so the FCCAnalyses bookkeeping value `eventsProcessed` keeps counting the raw input. The applied list is printed when the analysis graph is built; nothing in the repository re-derives the luminosity, so the fixed luminosity in `Data_MC_plotting/plotting_config_stage1.py` (or the event fraction kept) has to be adjusted by hand when the list changes. The list is keyed by year; a year without a list gets a warning and no veto.
 
+`--noDedxGate` (data and MC) accepts every linked dE/dx measurement as valid, i.e. switches off the failed-leg omega sentinel gate. Use it with converters that no longer copy the track omega into a failed leg.
+
+`pfcand_d0` and `pfcand_z0` are the **raw** perigee impact parameters of the track linked to each jet constituent, taken from the stored track state: referenced to the coordinate origin, in cm, in the LCIO sign convention (the ALEPH→LCIO flip of `D0` and `omega` is applied; the `pfcand_*` covariance branches are read from the same flipped collection). They are *not* recomputed at the primary vertex — `pfcand_dxy` and `pfcand_dz` are the PV-referenced ones. A constituent with no track (a neutral) carries the guard value −9 in both, again as for the covariance branches; the PV-referenced `pfcand_dxy/dz/phi0/C/ct` also read −9 for a charge-0 constituent that carries a track link.
+
+The −9 sentinel of `pfcand_d0`/`pfcand_z0` lies inside the physical range of those variables, so the safe test for "no track" is the track link itself (or exact equality with −9), not a range cut.
+
+`pfcand_C` is now half the fitted curvature, |omega|/2 in 1/cm, signed by the charge. It was previously Bz·c/(2 pT) from the energy-flow pT in 1/mm, so both the scale (a factor 10) and the source differ — the latter matters for V0 daughters, whose energy-flow momentum is quoted at the V0 vertex.
+
+`pfcand_dEdx_pads_type` and `pfcand_dEdx_wires_type` are no longer a validity mask: an accepted leg can carry any type and a rejected one reads −9 in value, error and type, so test the value branch rather than `type == 0`.
+
 ### Run on batch:
 ```
 fccanalysis submit stage1.py -- --tag VXX-XX --MCflavour X --batch --chunks X
