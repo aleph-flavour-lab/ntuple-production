@@ -43,7 +43,7 @@ Output files will be in: `/eos/experiment/fcc/ee/analyses/case-studies/aleph/pro
 
 `--year` and `--fraction` is also supported as an argument here. 
 
-The runs listed in `run_veto.py` (vertexing-unusable, tracking-quality and off-plateau-field runs) are vetoed before any selection; `--excludeRuns RUN [RUN ...]` adds runs, `--noRunVeto` switches the list off. `eventsProcessed` still counts the raw input.
+The 1994 data runs listed in `run_veto.py` (unusable primary vertex, tracking-quality outliers, off-plateau solenoid field; see the file for the criteria) are vetoed before any selection; `--excludeRuns RUN [RUN ...]` adds runs, `--noRunVeto` switches the list off. Both are data-only and rejected in MC mode. The veto is an event filter, so the FCCAnalyses bookkeeping value `eventsProcessed` keeps counting the raw input; it plays no role in the data normalisation, which follows the luminosity of the kept runs.
 
 ### Run on batch:
 ```

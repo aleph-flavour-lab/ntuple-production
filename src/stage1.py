@@ -38,6 +38,8 @@ class Analysis():
         # All command line arguments know to fccanalysis are provided in the
         # `cmdline_arg` dictionary.
         self.ana_args, _ = parser.parse_known_args(cmdline_args['remaining'])
+        if not self.ana_args.doData and (self.ana_args.excludeRuns or self.ana_args.noRunVeto):
+            raise ValueError("--excludeRuns and --noRunVeto apply to data only (--doData); Monte Carlo has no run veto")
 
         #Dictionary for setting output names:
         outnames_dict = {
