@@ -43,8 +43,6 @@ Output files will be in: `/eos/experiment/fcc/ee/analyses/case-studies/aleph/pro
 
 `--year` and `--fraction` is also supported as an argument here. 
 
-The runs listed in `run_veto.py` (vertexing-unusable, tracking-quality and off-plateau-field runs) are vetoed before any selection; `--excludeRuns RUN [RUN ...]` adds runs, `--noRunVeto` switches the list off. `eventsProcessed` still counts the raw input.
-
 `--noDedxGate` (data and MC) accepts every linked dE/dx measurement as valid, i.e. switches off the failed-leg omega sentinel gate. Use it with converters that no longer copy the track omega into a failed leg.
 
 `pfcand_d0` and `pfcand_z0` are the **raw** perigee impact parameters of the track linked to each jet constituent, taken from the stored track state: referenced to the coordinate origin, in cm, in the LCIO sign convention (the ALEPH→LCIO flip of `D0` and `omega` is applied; the `pfcand_*` covariance branches are read from the same flipped collection). They are *not* recomputed at the primary vertex — `pfcand_dxy` and `pfcand_dz` are the PV-referenced ones. A constituent with no track (a neutral) carries the guard value −9 in both, again as for the covariance branches; the PV-referenced `pfcand_dxy/dz/phi0/C/ct` also read −9 for a charge-0 constituent that carries a track link.

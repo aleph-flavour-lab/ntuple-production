@@ -718,8 +718,10 @@ rv::RVec<rv::RVec<float>> get_PID_pvalue(const rv::RVec<rv::RVec<std::array<doub
   return values;
 }
 
-// Re-order a track-indexed collection through the ReconstructedParticle->Track relation:
-// tracks_begin indexes that relation, not the collection, so re-order before reading it.
+// Re-order a track-indexed collection through the ReconstructedParticle->Track relation.
+// tracks_begin indexes that relation, not the collection (podio layout). The FCCAnalyses
+// helpers read the collection directly, which holds only when the converter writes the
+// relation in track order; ALEPH's does not, so re-order before reading.
 template <typename T>
 rv::RVec<T> reindexByRPLink(const rv::RVec<T> &coll,
                             const rv::RVec<int> &rpTrackIndex) {
