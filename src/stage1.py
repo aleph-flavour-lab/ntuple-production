@@ -34,6 +34,8 @@ class Analysis():
                             help='data only: veto these run numbers in addition to the run_veto.py list (eventsProcessed still counts the raw input).')
         parser.add_argument('--noRunVeto', action='store_true',
                             help='data only: do not apply the run_veto.py list (--excludeRuns still applies).')
+        parser.add_argument('--noDedxGate', action='store_true',
+                            help='accept every linked dE/dx measurement as valid, i.e. switch off the failed-leg omega sentinel gate; for converters that no longer copy omega into a failed leg.')
         # Parse additional arguments not known to the FCCAnalyses parsers
         # All command line arguments know to fccanalysis are provided in the
         # `cmdline_arg` dictionary.
@@ -456,38 +458,38 @@ class Analysis():
         df = df.Define("pfcand_ptrel",     "AlephSelection::get_ptrel_cluster(jets, jetc)")
         df = df.Define("pfcand_ptrel_log", "AlephSelection::get_ptrel_log_cluster(jets, jetc)")
 
+        # tracks re-indexed through the RecoParticle->Track relation (see analyzer.h)
+        df = df.Define("TracksByRP", "AlephSelection::reindexByRPLink(Tracks, _RecoParticles_tracks.index)")
+
         # track fit quality per constituent (-1 for neutrals, which have no track)
-        df = df.Define("pfcand_trackChi2",     "AlephSelection::get_constituent_trackChi2(jetc, Tracks)")
-        df = df.Define("pfcand_trackNdof",     "AlephSelection::get_constituent_trackNdof(jetc, Tracks)")
-        df = df.Define("pfcand_trackChi2Norm", "AlephSelection::get_constituent_trackChi2Norm(jetc, Tracks)")
+        df = df.Define("pfcand_trackChi2",     "AlephSelection::get_constituent_trackChi2(jetc, TracksByRP)")
+        df = df.Define("pfcand_trackNdof",     "AlephSelection::get_constituent_trackNdof(jetc, TracksByRP)")
+        df = df.Define("pfcand_trackChi2Norm", "AlephSelection::get_constituent_trackChi2Norm(jetc, TracksByRP)")
 
         # subdetector hit counts per constituent (inside-out: VDET, ITC, TPC)
-        df = df.Define("pfcand_nTrackHits_VDET", "AlephSelection::get_constituent_nTrackHits_VDET(jetc, Tracks, _Tracks_subdetectorHitNumbers)")
-        df = df.Define("pfcand_nTrackHits_ITC",  "AlephSelection::get_constituent_nTrackHits_ITC(jetc, Tracks, _Tracks_subdetectorHitNumbers)")
-        df = df.Define("pfcand_nTrackHits_TPC",  "AlephSelection::get_constituent_nTrackHits_TPC(jetc, Tracks, _Tracks_subdetectorHitNumbers)")
+        # the offsets inside TrackData index the flat hit-number array, so it is passed as is
+        df = df.Define("pfcand_nTrackHits_VDET", "AlephSelection::get_constituent_nTrackHits_VDET(jetc, TracksByRP, _Tracks_subdetectorHitNumbers)")
+        df = df.Define("pfcand_nTrackHits_ITC",  "AlephSelection::get_constituent_nTrackHits_ITC(jetc, TracksByRP, _Tracks_subdetectorHitNumbers)")
+        df = df.Define("pfcand_nTrackHits_TPC",  "AlephSelection::get_constituent_nTrackHits_TPC(jetc, TracksByRP, _Tracks_subdetectorHitNumbers)")
 
         df = df.Define("Bz", '1.5') # luka reads this from the event ? 
 
         ############################################# Track Parameters and Covariance #######################################################
 
         df = df.Define("TrackStateFlipped",f"AlephSelection::flipD0_copy( {coll['TrackState']} )")
-        # re-index through the RecoParticle->Track relation so that .at(tracks_begin) picks the particle's own track
-        df = df.Define("TrackStateByRP", "AlephSelection::reindexByRPLink(TrackStateFlipped, _RecoParticles_tracks.index)")
+        df = df.Define("TrackStateByRP", "AlephSelection::trackStatesByRPLink(TrackStateFlipped, Tracks, _RecoParticles_tracks.index)")
 
-        # dxy/dz/phi0 w.r.t. the PV, computed once with every curvature term in cm; C and ct
-        # are the fitted curvature and dip angle (see analyzer.h)
+        # dxy/dz/phi0 at the PV; C and ct are the fitted curvature and dip angle
         df = df.Define("pfcand_trkparPV",   "AlephSelection::get_constituent_trackParamsAtPV(jetc, TrackStateByRP, Vertex_refit_tlv, Bz)")
         df = df.Define("pfcand_dxy",        "pfcand_trkparPV.dxy")
         df = df.Define("pfcand_dz",         "pfcand_trkparPV.dz")
         df = df.Define("pfcand_phi0",       "pfcand_trkparPV.phi0")
         df = df.Define("pfcand_C",          "pfcand_trkparPV.C")
         df = df.Define("pfcand_ct",         "pfcand_trkparPV.ct")
-        # raw perigee d0/z0 of the constituent's own track state: origin-referenced,
-        # in cm, not recomputed at the PV; -9 for neutrals as for the covariances
+        # raw perigee d0/z0 of the constituent's track: origin-referenced, cm, -9 for neutrals
         df = df.Define("pfcand_d0",         "AlephSelection::get_constituent_D0(jetc, TrackStateByRP)")
         df = df.Define("pfcand_z0",         "AlephSelection::get_constituent_Z0(jetc, TrackStateByRP)")
-        # track covariance, lower-triangular packing in the order (d0, phi0, omega, z0, tanLambda):
-        # cov(a,b) with a >= b sits at index a*(a+1)/2 + b
+        # covariance, lower-triangular in (d0, phi0, omega, z0, tanLambda): cov(a,b) at a*(a+1)/2 + b
         df = df.Define("pfcand_dptdpt",     "AlephSelection::get_constituent_trackCov(jetc, TrackStateByRP, 5)")
         df = df.Define("pfcand_dxydxy",     "AlephSelection::get_constituent_trackCov(jetc, TrackStateByRP, 0)")
         df = df.Define("pfcand_dzdz",       "AlephSelection::get_constituent_trackCov(jetc, TrackStateByRP, 9)")
@@ -572,9 +574,10 @@ class Analysis():
         # df = df.Define("pfcand_dEdx_wires_error", "AlephSelection::get_dEdx_error(jet_constituents_dEdx_wires_objs)")
 
         # Get the dE/dx value and matching PID hypothesis pvalue from Bethe-Bloch fits for the jet constituents
+        dedx_gate = "false" if self.ana_args.noDedxGate else "true"
 
         ## Pads
-        df = df.Define("jet_constituents_dEdx_PIDhypo_pads_result", "AlephSelection::build_constituents_dEdx_PIDhypo()(RecoParticles, _RecoParticles_tracks.index, dEdxPads, _dEdxPads_track.index, _jetc, _Tracks_trackStates, false)" )
+        df = df.Define("jet_constituents_dEdx_PIDhypo_pads_result", f"AlephSelection::build_constituents_dEdx_PIDhypo()(RecoParticles, _RecoParticles_tracks.index, dEdxPads, _dEdxPads_track.index, _jetc, Tracks, _Tracks_trackStates, false, {dedx_gate})" )
         df = df.Define("jet_constituents_dEdx_pads_objs", "jet_constituents_dEdx_PIDhypo_pads_result.dedx_constituents")
         df = df.Define("pfcand_dEdx_pads_type", "AlephSelection::get_dEdx_type(jet_constituents_dEdx_pads_objs)")
         df = df.Define("pfcand_dEdx_pads_value", "AlephSelection::get_dEdx_value(jet_constituents_dEdx_pads_objs)")
@@ -589,7 +592,7 @@ class Analysis():
         df = df.Define("pfcand_PID_pval_pads_proton", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_pads, 4)")
 
         ## Wires
-        df = df.Define("jet_constituents_dEdx_PIDhypo_wires_result", "AlephSelection::build_constituents_dEdx_PIDhypo()(RecoParticles, _RecoParticles_tracks.index, dEdxWires, _dEdxWires_track.index, _jetc, _Tracks_trackStates, true)" )
+        df = df.Define("jet_constituents_dEdx_PIDhypo_wires_result", f"AlephSelection::build_constituents_dEdx_PIDhypo()(RecoParticles, _RecoParticles_tracks.index, dEdxWires, _dEdxWires_track.index, _jetc, Tracks, _Tracks_trackStates, true, {dedx_gate})" )
         df = df.Define("jet_constituents_dEdx_wires_objs", "jet_constituents_dEdx_PIDhypo_wires_result.dedx_constituents")
         df = df.Define("pfcand_dEdx_wires_type", "AlephSelection::get_dEdx_type(jet_constituents_dEdx_wires_objs)")
         df = df.Define("pfcand_dEdx_wires_value", "AlephSelection::get_dEdx_value(jet_constituents_dEdx_wires_objs)")
