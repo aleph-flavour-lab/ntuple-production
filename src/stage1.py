@@ -2,8 +2,16 @@
 import os
 import sys
 from argparse import ArgumentParser
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from run_veto import vetoed_runs
+
+
+def run_number(text):
+    """argparse type: a positive run number"""
+    n = int(text)
+    if n <= 0:
+        raise ValueError(f"run number must be positive: {text}")
+    return n
 
 class Analysis():
 
@@ -30,16 +38,19 @@ class Analysis():
                             help='Run tester file only for validation against Lukas ntuples.')
         parser.add_argument('--chunks', default=None, type=int,
                             help='Number of chunks per process/file')
-        parser.add_argument('--excludeRuns', nargs='+', default=[], type=int, metavar='RUN',
+        parser.add_argument('--excludeRuns', nargs='+', action='extend', default=[], type=run_number, metavar='RUN',
                             help='data only: veto these run numbers in addition to the run_veto.py list (eventsProcessed still counts the raw input).')
         parser.add_argument('--noRunVeto', action='store_true',
                             help='data only: do not apply the run_veto.py list (--excludeRuns still applies).')
         # Parse additional arguments not known to the FCCAnalyses parsers
         # All command line arguments know to fccanalysis are provided in the
         # `cmdline_arg` dictionary.
-        self.ana_args, _ = parser.parse_known_args(cmdline_args['remaining'])
+        self.ana_args, unknown = parser.parse_known_args(cmdline_args['remaining'])
+        if unknown:
+            print(f"----> WARNING: unrecognised arguments ignored: {' '.join(unknown)}")
         if not self.ana_args.doData and (self.ana_args.excludeRuns or self.ana_args.noRunVeto):
-            raise ValueError("--excludeRuns and --noRunVeto apply to data only (--doData); Monte Carlo has no run veto")
+            print("----> ERROR: --excludeRuns and --noRunVeto apply to data only (--doData); Monte Carlo has no run veto.")
+            exit()
 
         #Dictionary for setting output names:
         outnames_dict = {
@@ -171,10 +182,14 @@ class Analysis():
         if self.ana_args.doData:
             veto_runs = set(self.ana_args.excludeRuns)
             if not self.ana_args.noRunVeto:
-                veto_runs |= set(vetoed_runs())
+                listed = vetoed_runs(self.ana_args.year)
+                if not listed:
+                    print(f"----> WARNING: no run veto list for year {self.ana_args.year}; none applied.")
+                veto_runs |= listed
+            print(f"----> run veto: {len(veto_runs)} runs {sorted(veto_runs)}")
             if veto_runs:
-                veto = " && ".join(f"EventHeader.runNumber[0] != {r}" for r in sorted(veto_runs))
-                df = df.Filter(veto, "excludeRuns")
+                veto = "EventHeader.runNumber.size() == 1 && " + " && ".join(f"EventHeader.runNumber[0] != {r}" for r in sorted(veto_runs))
+                df = df.Filter(veto, "runVeto")
             #df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset)   || AlephSelection::sel_class_filter(17)(ClassBitset) ")
             df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset) ")
             df = df.Define("jetPID", "-999")
