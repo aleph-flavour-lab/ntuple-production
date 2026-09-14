@@ -1,5 +1,8 @@
 """Run veto for the 1994 ALEPH data: stage1.py applies it in data mode
-before any selection (--noRunVeto disables it, --excludeRuns adds runs)."""
+before any selection (--noRunVeto disables it, --excludeRuns adds runs).
+
+Interim list derived from our own per-run checks, to be replaced by the
+official ALEPH good-run list once available."""
 
 VETO_RUNS_1994 = {
     # primary vertex unusable: VDET off or beam-spot period not covered
