@@ -325,13 +325,11 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
         continue;
       }
       
+      // track and state are stored together so that the two vectors stay index-aligned
       selected_tracks_and_states.trackStates.push_back(trackstate);
+      selected_tracks_and_states.tracks.push_back(track);
       selected_tracks_and_states.origIdx.push_back(int(track_index));
     }
-
-    // if all passed, track is selected
-    selected_tracks_and_states.tracks.push_back(track);
-    
 
   }
   return selected_tracks_and_states;
