@@ -35,12 +35,6 @@ inline VertexingUtils::FCCAnalysesVertex fitTracksCm(
   return v;
 }
 
-// Closest-dR assignment of a vertex to a jet, shared by the per-candidate and
-// the per-jet fills: kAssignMinP is the smallest vertex momentum that still
-// gets a jet, kAssignDRInit the dR seed that any jet of the event beats.
-constexpr double kAssignMinP = 1e-10;
-constexpr double kAssignDRInit = 99.;
-
 // Undefined Armenteros-Podolanski variables: the value the candidate-level
 // alpha/qt carry when the pair is unusable, far below any physical alpha.
 constexpr double kApUndef = -99.;

@@ -596,15 +596,16 @@ inline TVector3 candMomentum(const VertexingUtils::FCCAnalysesVertex& v) {
 
 // Jet of every candidate, or -1 when it has none: closest dR between the
 // candidate momentum and the jet axis, the first jet winning a tie. Reproduces
-// the assignment that fills the per-jet mirror block, so the two are joinable.
+// the assignment that fills the per-jet mirror block (assign_V0s_to_jets in
+// analyzer.h: same zero-momentum guard and dR seed), so the two are joinable.
 inline RVec<int> candJetIdx(const VertexingUtils::FCCAnalysesV0& v0s,
                             const RVec<fastjet::PseudoJet>& jets) {
   RVec<int> out;
   for (const auto& v : v0s.vtx) {
     int best = -1;
     TVector3 p = candMomentum(v);
-    if (jets.size() > 0 && !(p.Mag() < AlephTrkAux::kAssignMinP)) {
-      double minDR = AlephTrkAux::kAssignDRInit;
+    if (jets.size() > 0 && !(p.Mag() < 1e-10)) {
+      double minDR = 99.;
       best = 0;
       for (size_t j = 0; j < jets.size(); ++j) {
         double dR = p.DeltaR(TVector3(jets[j].px(), jets[j].py(), jets[j].pz()));

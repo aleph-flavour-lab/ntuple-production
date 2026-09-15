@@ -6,6 +6,8 @@ namespace FCCAnalyses {
 namespace AlephUnits {
 // pT [GeV] = kPtPerTeslaCm * Bz [T] / |omega [1/cm]|  (0.29979 GeV/(T m), in cm)
 constexpr double kPtPerTeslaCm = 0.0029979;
+// solenoid field [T]: exact in the simulation, the constant adopted for data too
+constexpr double kBz = 1.5;
 }  // namespace AlephUnits
 
 // PDG 2024 central values [GeV]: the single source for every analyzer mass.

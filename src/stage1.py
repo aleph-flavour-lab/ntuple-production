@@ -2,7 +2,7 @@
 import os
 from argparse import ArgumentParser
 
-BZ = 1.5  # solenoid field [T] — single source for the stage1 Define strings
+BZ = "FCCAnalyses::AlephUnits::kBz"  # solenoid field [T]; the value lives in aleph_units.h
 
 # Legacy V0 finder call options, shared by the finder itself and by the replica
 # that recovers its pair indices, so the two cannot diverge. The mass windows and
@@ -331,7 +331,7 @@ class Analysis():
         # sec2origIdx index-map branches, on data too.
         # analyzer_trkaux.h is unconditional too: it carries the vertex-fit glue
         # and the track -> ReconstructedParticle join behind the per-leg PF label.
-        self.include_paths = ["analyzer.h", "analyzer_truth.h", "analyzer_trkaux.h"]
+        self.include_paths = ["aleph_units.h", "aleph_reco_config.h", "analyzer.h", "analyzer_truth.h", "analyzer_trkaux.h"]
         if self.do_v0new:
             self.include_paths.append("analyzer_v0new.h")
 
@@ -437,12 +437,12 @@ class Analysis():
         df = df.Define("chi2_o_ndf_tracks_all","AlephSelection::get_track_ndf( Tracks )") #TODO: use collection here
         
         # baseline track selection: positive definite cov matrix & chi2 < 10 
-        df = df.Define("tracks_selected_baseline_result","AlephSelection::select_tracks_baseline( Tracks, _Tracks_trackStates )") #TODO: use collection here  0.75, 2.0
+        df = df.Define("tracks_selected_baseline_result","AlephSelection::select_tracks_baseline( Tracks, _Tracks_trackStates )") #TODO: use collection here
         df = df.Define("tracks_selected_baseline","tracks_selected_baseline_result.tracks") 
         df = df.Define("trackstates_selected_baseline","tracks_selected_baseline_result.trackStates") 
 
         # impose upper bounds on impact parameters to pre-select compatible tracks for the primary vertex fit 
-        df = df.Define("tracks_selected_for_vertexfit_result","AlephSelection::select_tracks_impactparameters( tracks_selected_baseline_result, 0.75, 2.0 )") 
+        df = df.Define("tracks_selected_for_vertexfit_result","AlephSelection::select_tracks_impactparameters( tracks_selected_baseline_result, FCCAnalyses::AlephReco::kPVTrackD0Max, FCCAnalyses::AlephReco::kPVTrackZ0Max )") 
         df = df.Define("tracks_selected_for_vertexfit","tracks_selected_for_vertexfit_result.tracks") 
         df = df.Define("trackstates_selected_for_vertexfit","tracks_selected_for_vertexfit_result.trackStates") 
 
@@ -459,12 +459,13 @@ class Analysis():
 
         # run primary vertex fit using FCCAna native fitter
 
-        # Luka's loose BS constraints from looking at data
-        res_x_loose = 200. # in um
-        res_y_loose = 100. # in um
-        res_z_loose = 2. # in cm
-
-        chi2max = 5. # the maximum chi2 under which tracks are compatible with vertex fit
+        # Luka's loose BS constraints from looking at data, and the chi2 under which a
+        # track is compatible with the vertex fit: values in aleph_reco_config.h, in
+        # the fitter's units (10 um)
+        res_x_loose = "FCCAnalyses::AlephReco::kBeamSigmaXFit"
+        res_y_loose = "FCCAnalyses::AlephReco::kBeamSigmaYFit"
+        res_z_loose = "FCCAnalyses::AlephReco::kBeamSigmaZFit"
+        chi2max = "FCCAnalyses::AlephReco::kPVChi2Max"
 
         # Beamspot POSITION (the widths above are its size; this is its centre).
         # In simulation the beamspot is at the origin by construction. In data it is offset by
@@ -495,8 +496,8 @@ class Analysis():
         # `if(tracksToUse.size() < 2){ return primaryTracks; }`) guards against. Without this we
         # get nPrim=1 where the reference has nPrim=0 (~1400 events / 1.05M in the full sweep).
         # note: the {{}} is an escaped literal {} for str.format - it is the empty RVec, not a placeholder
-        df = df.Define("RecoedPrimaryTracks_looseBS", "trackstates_selected_for_vertexfit_flipped.size() < 2 ? ROOT::VecOps::RVec<edm4hep::TrackState>{{}} : VertexFitterSimple::get_PrimaryTracks(trackstates_selected_for_vertexfit_flipped, true, {},{},{}, Beamspot_x, Beamspot_y, Beamspot_z, {})".format(res_x_loose/10., res_y_loose/10., res_z_loose*1E03, chi2max)) # 10um as unit (x,y), 1cm as unit (z)
-        df = df.Define("VertexObject_looseBS", "VertexFitterSimple::VertexFitter_Tk(1, RecoedPrimaryTracks_looseBS, true, {},{},{}, Beamspot_x, Beamspot_y, Beamspot_z)".format(res_x_loose/10., res_y_loose/10., res_z_loose*1E03)) # 10um as unit (x,y), 1cm as unit (z)
+        df = df.Define("RecoedPrimaryTracks_looseBS", "trackstates_selected_for_vertexfit_flipped.size() < 2 ? ROOT::VecOps::RVec<edm4hep::TrackState>{{}} : VertexFitterSimple::get_PrimaryTracks(trackstates_selected_for_vertexfit_flipped, true, {},{},{}, Beamspot_x, Beamspot_y, Beamspot_z, {})".format(res_x_loose, res_y_loose, res_z_loose, chi2max))
+        df = df.Define("VertexObject_looseBS", "VertexFitterSimple::VertexFitter_Tk(1, RecoedPrimaryTracks_looseBS, true, {},{},{}, Beamspot_x, Beamspot_y, Beamspot_z)".format(res_x_loose, res_y_loose, res_z_loose))
         df = df.Define("Vertex_refit_looseBS", "VertexingUtils::get_VertexData(VertexObject_looseBS)")
         df = df.Define("Vertex_refit_tlv", "TLorentzVector(Vertex_refit_looseBS.position.x, Vertex_refit_looseBS.position.y, Vertex_refit_looseBS.position.z, 0.)")
         # for retrieving secondary tracks, use the full list of selected tracks 
@@ -517,8 +518,8 @@ class Analysis():
         df = df.Define("n_secondary_tracks", "ReconstructedParticle2Track::getTK_n(SecondaryTracks_looseBS)")
 
         # for comparison test, fit vertex with tracks all tracks:
-        # df = df.Define("RecoedPrimaryTracks_looseBS_all_tracks", "VertexFitterSimple::get_PrimaryTracks(_Tracks_trackStates, true, {},{},{},0.,0.,0., {})".format(res_x_loose/10., res_y_loose/10., res_z_loose*1E03, chi2max)) # 10um as unit (x,y), 1cm as unit (z)
-        # df = df.Define("VertexObject_looseBS_all_tracks", "VertexFitterSimple::VertexFitter_Tk(1, RecoedPrimaryTracks_looseBS_all_tracks, true, {},{},{},0.,0.,0.)".format(res_x_loose/10., res_y_loose/10., res_z_loose*1E03)) # 10um as unit (x,y), 1cm as unit (z)
+        # df = df.Define("RecoedPrimaryTracks_looseBS_all_tracks", "VertexFitterSimple::get_PrimaryTracks(_Tracks_trackStates, true, {},{},{},0.,0.,0., {})".format(res_x_loose, res_y_loose, res_z_loose, chi2max))
+        # df = df.Define("VertexObject_looseBS_all_tracks", "VertexFitterSimple::VertexFitter_Tk(1, RecoedPrimaryTracks_looseBS_all_tracks, true, {},{},{},0.,0.,0.)".format(res_x_loose, res_y_loose, res_z_loose))
         # df = df.Define("Vertex_refit_looseBS_all_tracks", "VertexingUtils::get_VertexData(VertexObject_looseBS_all_tracks)")
         # df = df.Define("Vertex_refit_tlv_all_tracks", "TLorentzVector(Vertex_refit_looseBS_all_tracks.position.x, Vertex_refit_looseBS_all_tracks.position.y, Vertex_refit_looseBS_all_tracks.position.z, 0.)")
 

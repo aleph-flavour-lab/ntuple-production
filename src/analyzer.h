@@ -1244,7 +1244,7 @@ ROOT::VecOps::RVec<edm4hep::TrackState>
 V0rejection_ALEPH(
     const ROOT::VecOps::RVec<edm4hep::TrackState>& np_tracks,
     const FCCAnalysesVertex& PV,
-    double solenoidBz = 1.5,
+    double solenoidBz = AlephUnits::kBz,
     bool inclusive = false)
 {
     int nTr = np_tracks.size();
@@ -1289,7 +1289,7 @@ V0rejection_ALEPH(
     return result;
 }
 
-// SV finding with all ALEPH-specific defaults: 1.5 T field, ALEPH-tuned V0 rejection,
+// SV finding with all ALEPH-specific defaults: the ALEPH field (aleph_units.h), ALEPH-tuned V0 rejection,
 // dR prefilter enabled. Set inclusive_v0=true to match ntuplizer behaviour exactly.
 ROOT::VecOps::RVec<FCCAnalysesVertex>
 get_SV_event_ALEPH(
@@ -1299,12 +1299,12 @@ get_SV_event_ALEPH(
     double dR_cut = 0.8,
     bool inclusive_v0 = false)
 {
-    auto tracks_no_v0 = V0rejection_ALEPH(np_tracks, PV, 1.5, inclusive_v0);
+    auto tracks_no_v0 = V0rejection_ALEPH(np_tracks, PV, AlephUnits::kBz, inclusive_v0);
     return FCCAnalyses::VertexFinderLCFIPlus::get_SV_event(
         tracks_no_v0, all_tracks, PV,
         false,         // V0 rejection already done above with ALEPH constraints
         10., 10., 5., // chi2_cut, invM_cut, chi2Tr_cut
-        1.5,           // solenoidBz [T]
+        AlephUnits::kBz, // solenoidBz [T]
         dR_cut,       // dR_cut for prefiltering
         true,          // require opposite-charge seed pairs (matches FCCAnalyses@3a4de97 VertexSeed_best)
         false          // LOOSE V0 constraints in per-pair seed screening.
@@ -1471,7 +1471,7 @@ FCCAnalyses::VertexingUtils::FCCAnalysesV0
 get_V0s_ALEPH(
     const ROOT::VecOps::RVec<edm4hep::TrackState>& np_tracks,
     const FCCAnalysesVertex& PV,
-    double solenoidBz = 1.5, bool loose_mass_window = false,
+    double solenoidBz = AlephUnits::kBz, bool loose_mass_window = false,
     double dR_pair_cut = -1., bool exclusive_tracks = false)
 {
   namespace LV0 = FCCAnalyses::AlephLegacyV0;
@@ -1520,8 +1520,8 @@ assign_V0s_to_jets(
     ROOT::VecOps::RVec<TVector3> v0_momenta = FCCAnalyses::VertexingUtils::get_p_SV(v0s.vtx);
     for (unsigned int i = 0; i < v0s.vtx.size(); i++) {
         TVector3 v0_p = v0_momenta.at(i);
-        if (v0_p.Mag() < AlephTrkAux::kAssignMinP) continue;
-        double minDR = AlephTrkAux::kAssignDRInit;
+        if (v0_p.Mag() < 1e-10) continue;
+        double minDR = 99.;
         unsigned int best_jet = 0;
         for (unsigned int j = 0; j < jets.size(); j++) {
             double dR = v0_p.DeltaR(TVector3(jets[j].px(), jets[j].py(), jets[j].pz()));
