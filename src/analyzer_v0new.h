@@ -9,7 +9,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <numeric>
+#include <set>
+#include <stdexcept>
+#include <vector>
 
 #include <ROOT/RVec.hxx>
 #include "TVector3.h"
@@ -17,6 +21,7 @@
 #include "aleph_units.h"
 #include "analyzer_trkaux.h"
 #include "dedx_valid.h"
+#include "edm4hep/TrackData.h"
 #include "edm4hep/TrackState.h"
 #include "FCCAnalyses/VertexingUtils.h"
 #include "FCCAnalyses/VertexFitterSimple.h"
@@ -34,9 +39,9 @@ constexpr double MKS   = AlephMasses::kKs;
 constexpr double MLAM  = AlephMasses::kLambda;
 
 // ---------------------------------------------------------------------------
-// Cut package: single named source. TIGHT = adopted package (findV0s defaults;
-// candTight re-evaluates it offline), LOOSE = ML-training superset tier. Mass
-// windows, chi2 and displacement window are COMMON to both tiers.
+// Cut package: single named source. TIGHT = adopted package (findV0s defaults,
+// stored per candidate as V0Collection::tight), LOOSE = ML-training superset
+// tier. Mass windows, chi2 and displacement window are COMMON to both tiers.
 // ---------------------------------------------------------------------------
 constexpr double KS_M_LO = 0.40, KS_M_HI = 0.60;
 constexpr double LAM_M_LO = 1.08, LAM_M_HI = 1.20;
@@ -49,7 +54,7 @@ constexpr double TIGHT_COS_KS_LOWP = 0.999, TIGHT_COS_KS_MIDP = 0.9995,
 constexpr double TIGHT_COS_LAM_LOWP = 0.99995, TIGHT_COS_LAM_MIDP = 0.9999,
                  TIGHT_COS_LAM_HIGHP = 0.9999;
 constexpr double TIGHT_QT_MIN_LAM = 0.04;
-constexpr double AP_BAND_KS = 0.05, AP_LAM_LO = 0.10, AP_LAM_HI = 0.20;
+constexpr double AP_BAND_KS = 0.05, AP_LAM_LO = 0.10;
 constexpr double TIGHT_NSIG_KS_LOWP = 3., TIGHT_NSIG_KS_HIGHP = 4.;
 constexpr double LOOSE_COS_POINT = 0.999;
 constexpr double LOOSE_QT_MIN_LAM = 0.02;
@@ -74,17 +79,21 @@ constexpr double SIG_M_KS_A = 2.658e-3, SIG_M_KS_B = 0.5214e-3,
 constexpr double SIG_M_LAM_A = 1.045e-3, SIG_M_LAM_B = 0.2357e-3,
                  SIG_M_LAM_C = 0.005511e-3;
 
-// Shared per-hypothesis acceptance helpers, used by findV0s (both tiers) and
-// candTight (offline re-evaluation of the booked hypothesis).
+// Candidate-momentum [GeV] boundaries of the threshold tiers: the pointing cut
+// steps at kPointTierLoP and kPointTierHiP, the AP band width at kBandTierP.
+constexpr double kPointTierLoP = 2., kPointTierHiP = 4.;
+constexpr double kBandTierP = 15.;
+
+// Shared per-hypothesis acceptance helpers, used by findV0s for both tiers.
 inline double ksPointThr(double pmag, double lowp, double midp, double highp) {
-  return (pmag < 2.) ? lowp : (pmag < 4.) ? midp : highp;
+  return (pmag < kPointTierLoP) ? lowp : (pmag < kPointTierHiP) ? midp : highp;
 }
 // Lambda tight pointing tiers — same tier boundaries as Ks, different low-p
-// value; single source for findV0s AND candTight.
+// value.
 inline double lamPointThr(double pmag, double lowp = TIGHT_COS_LAM_LOWP,
                           double midp = TIGHT_COS_LAM_MIDP,
                           double highp = TIGHT_COS_LAM_HIGHP) {
-  return (pmag < 2.) ? lowp : (pmag < 4.) ? midp : highp;
+  return (pmag < kPointTierLoP) ? lowp : (pmag < kPointTierHiP) ? midp : highp;
 }
 inline double ksBandEll(double alpha, double qt, double pmag) {
   // frozen tuned values of the Ks AP band; do not re-derive
@@ -98,7 +107,7 @@ inline double sigmaEllKs(double pmag) {
 }
 inline double ksBandThr(double pmag, double floor_, double nsig_lo, double nsig_hi) {
   // resolution-scaled width; floor_ acts as the low-p floor
-  double nsig = (pmag < 15.) ? nsig_lo : nsig_hi;
+  double nsig = (pmag < kBandTierP) ? nsig_lo : nsig_hi;
   return std::max(floor_, nsig * sigmaEllKs(pmag));
 }
 inline double lamBandEll(double alpha, double qt, double pmag) {
@@ -137,8 +146,7 @@ inline double lamBandThrLoose(double pmag, double lo, double hi,
 }
 
 // TIGHT (adopted) package for ONE hypothesis: mass window, p-tiered pointing
-// and AP band, plus the qT veto for Lambda. Single source for the finder tier
-// and for the offline candTight flag.
+// and AP band, plus the qT veto for Lambda. Single source for the finder tier.
 inline bool ksTight(double m, double cp, double pmag, double alpha, double qt) {
   bool ok = (m > KS_M_LO && m < KS_M_HI) &&
             cp > ksPointThr(pmag, TIGHT_COS_KS_LOWP, TIGHT_COS_KS_MIDP,
@@ -218,17 +226,25 @@ inline V0Sel evalV0Selection(double chi2, double dis, double cp, double pmag,
 // ---------------------------------------------------------------------------
 // The finder. np_tracks = flipD0_copy'ed non-primary trackstates, PV = fitted
 // primary vertex (positions in cm). TWO-TIER: only tight-failing pairs enter the
-// LOOSE tier, and tight candidates claim tracks first, so candTight==1 selects
+// LOOSE tier, and tight candidates claim tracks first, so the tight flag selects
 // exactly the tight-only output. Returns candidates in claim order (tight block
 // first, chi2 ascending within a tier); pdgAbs = best hypothesis (310 or 3122),
-// invM its mass.
+// invM its mass, tight = 1 for the tight tier.
 // ---------------------------------------------------------------------------
-inline VertexingUtils::FCCAnalysesV0 findV0s(
+
+// The module's candidate collection: the FCCAnalyses V0 collection (vertices,
+// hypothesis, mass), so every helper taking one accepts it, plus the tier of
+// each candidate. tightV0s / getKs / getLambda copy sub-collections of it.
+struct V0Collection : VertexingUtils::FCCAnalysesV0 {
+  RVec<int> tight;   // 1 = passed the tight package, 0 = loose tier
+};
+
+inline V0Collection findV0s(
     const RVec<edm4hep::TrackState>& np_tracks,
     const VertexingUtils::FCCAnalysesVertex& PV,
     double solenoidBz) {
 
-  VertexingUtils::FCCAnalysesV0 result;
+  V0Collection result;
   const int nTr = np_tracks.size();
   if (nTr < 2) return result;
 
@@ -268,7 +284,7 @@ inline VertexingUtils::FCCAnalysesV0 findV0s(
       // physical charge = +sign(omega) for the flipD0_copy'ed collection (raw
       // ALEPH omega carries -charge, the flip restores +charge)
       double q1 = (np_tracks[i].omega > 0) ? 1. : -1.;
-      double alpha = -99., qt = -99.;
+      double alpha = AlephTrkAux::kApUndef, qt = AlephTrkAux::kApUndef;
       if (pmag > 0.) apVars(p1, p2, q1, alpha, qt);
 
       // hypothesis masses: Ks(pipi), Lambda(p pi) with proton = higher-|p| track
@@ -302,8 +318,36 @@ inline VertexingUtils::FCCAnalysesV0 findV0s(
     result.vtx.push_back(c.vtx);
     result.pdgAbs.push_back(c.pdg);
     result.invM.push_back(c.m);
+    result.tight.push_back(c.tight ? 1 : 0);
   }
   return result;
+}
+
+// Sub-collections, in the stored order: the tight tier, or the candidates
+// booked on one hypothesis (310 = Ks, 3122 = Lambda or anti-Lambda). Copies of
+// the same fitted objects, no refit: getKs(V0sNewTight_event) is the tight Ks,
+// getKs(V0sNew_event) every stored Ks candidate (loose tier, tight included).
+inline V0Collection selectV0(const V0Collection& v0s, const RVec<int>& keep) {
+  if (keep.size() != v0s.vtx.size())
+    throw std::runtime_error("AlephV0New::selectV0: mask size != candidate count");
+  V0Collection out;
+  for (size_t c = 0; c < v0s.vtx.size(); ++c) {
+    if (!keep[c]) continue;
+    out.vtx.push_back(v0s.vtx[c]);
+    out.pdgAbs.push_back(v0s.pdgAbs[c]);
+    out.invM.push_back(v0s.invM[c]);
+    out.tight.push_back(v0s.tight[c]);
+  }
+  return out;
+}
+inline V0Collection tightV0s(const V0Collection& v0s) {
+  return selectV0(v0s, v0s.tight);
+}
+inline V0Collection getKs(const V0Collection& v0s) {
+  return selectV0(v0s, v0s.pdgAbs == 310);
+}
+inline V0Collection getLambda(const V0Collection& v0s) {
+  return selectV0(v0s, v0s.pdgAbs == 3122);
 }
 
 // ---------------------------------------------------------------------------
@@ -317,49 +361,15 @@ inline RVec<float> candAlpha(const VertexingUtils::FCCAnalysesV0& v0s,
   for (const auto& v : v0s.vtx) {
     if (v.reco_ind.size() < 2 || v.updated_track_momentum_at_vertex.size() < 2 ||
         v.reco_ind[0] < 0 || v.reco_ind[0] >= (int)secondaries.size()) {
-      out.push_back(-99.);
+      out.push_back(AlephTrkAux::kApUndef);
       continue;
     }
     double q1 = (secondaries[v.reco_ind[0]].omega > 0) ? 1. : -1.;
     double alpha, qt;
     apVars(v.updated_track_momentum_at_vertex[0],
-           v.updated_track_momentum_at_vertex[1], q1, alpha, qt, -99.);
+           v.updated_track_momentum_at_vertex[1], q1, alpha, qt,
+           AlephTrkAux::kApUndef);
     out.push_back(alpha);
-  }
-  return out;
-}
-
-// Offline tight-package flag: 1 if the candidate's BOOKED hypothesis passes the
-// adopted tight package, 0 if it entered via the loose training tier. Uses the
-// shared helpers/constants of findV0s; assumes no variant override. On data.
-inline RVec<int> candTight(const VertexingUtils::FCCAnalysesV0& v0s,
-                           const VertexingUtils::FCCAnalysesVertex& PV,
-                           const RVec<edm4hep::TrackState>& secondaries) {
-  RVec<int> out;
-  TVector3 pv(PV.vertex.position[0], PV.vertex.position[1], PV.vertex.position[2]);
-  for (size_t c = 0; c < v0s.vtx.size(); ++c) {
-    const auto& v = v0s.vtx[c];
-    if (v.reco_ind.size() < 2 || v.updated_track_momentum_at_vertex.size() < 2 ||
-        v.reco_ind[0] < 0 || v.reco_ind[0] >= (int)secondaries.size()) {
-      out.push_back(0);
-      continue;
-    }
-    TVector3 p1 = v.updated_track_momentum_at_vertex[0];
-    TVector3 p2 = v.updated_track_momentum_at_vertex[1];
-    TVector3 p = p1 + p2;
-    double pmag = p.Mag();
-    TVector3 x(v.vertex.position[0], v.vertex.position[1], v.vertex.position[2]);
-    TVector3 d = x - pv;
-    double dis = d.Mag();
-    if (pmag <= 0 || dis <= 0) { out.push_back(0); continue; }
-    double cp = d.Dot(p) / (dis * pmag);
-    double q1 = (secondaries[v.reco_ind[0]].omega > 0) ? 1. : -1.;
-    double alpha, qt;
-    apVars(p1, p2, q1, alpha, qt);
-    double m = v0s.invM[c];
-    bool ok = (v0s.pdgAbs[c] == 310) ? ksTight(m, cp, pmag, alpha, qt)
-                                     : lamTight(m, cp, pmag, alpha, qt);
-    out.push_back(ok ? 1 : 0);
   }
   return out;
 }
@@ -417,8 +427,8 @@ inline RVec<float> candMassSig(const VertexingUtils::FCCAnalysesV0& v0s) {
 // Pointing significance: chi2-like significance of the displacement component
 // PERPENDICULAR to the candidate momentum (all in cm). d = candidate vertex -
 // reference vertex, p = candidate momentum, cV/cR = packed lower-triangular
-// position covariances (xx,yx,yy,zx,zy,zz); reference = PV for candPointSig, an
-// SV for candSVPointing. Returns -1 for degenerate or singular geometry.
+// position covariances (xx,yx,yy,zx,zy,zz); the reference vertex is the PV.
+// Returns -1 for degenerate or singular geometry.
 template <typename CovV, typename CovR>
 inline float pointSigTransverse(const TVector3& d, const TVector3& p,
                                 const CovV& cV, const CovR& cR) {
@@ -471,9 +481,8 @@ inline RVec<float> candQt(const VertexingUtils::FCCAnalysesV0& v0s) {
 // vertex-fit covariance exposure + per-daughter joins
 // ---------------------------------------------------------------------------
 
-// Vertex-fit covariance component ic of every candidate (packed lower triangle:
-// 0=xx 1=yx 2=yy 3=zx 4=zy 5=zz, cm^2 — same packing as Vertex_refit_cov_*).
-// Works for the V0 and the new-SV module output (both are FCCAnalysesV0).
+// Vertex-fit covariance component ic of every candidate, in cm^2 (packed lower
+// triangle: 0=xx 1=yx 2=yy 3=zx 4=zy 5=zz).
 inline RVec<float> candCovComp(const VertexingUtils::FCCAnalysesV0& v0s,
                                int ic) {
   RVec<float> out;
@@ -481,15 +490,28 @@ inline RVec<float> candCovComp(const VertexingUtils::FCCAnalysesV0& v0s,
   return out;
 }
 
+// Slot of logical daughter k (0/1) in the parallel per-track arrays reco_ind
+// and updated_track_momentum_at_vertex (same slot = same fitted track): leg 0 =
+// higher-momentum daughter at the fitted vertex. Raw order on a tie or when the
+// momenta are missing.
+inline int legSlot(const VertexingUtils::FCCAnalysesVertex& v, int k) {
+  if (v.updated_track_momentum_at_vertex.size() < 2) return k;
+  const bool swap = v.updated_track_momentum_at_vertex[1].Mag() >
+                    v.updated_track_momentum_at_vertex[0].Mag();
+  return swap ? 1 - k : k;
+}
+
 // Daughter k (0/1) of every candidate as an ORIGINAL Tracks index: reco_ind
-// (secondary space) walked through sec2orig. -1 when unavailable; truth-free.
+// (secondary space) walked through sec2orig, legs in momentum order (k = 0 is
+// the higher-momentum one). -1 when unavailable; truth-free.
 inline RVec<int> candDaughterOrigIdx(const VertexingUtils::FCCAnalysesV0& v0s,
                                      const RVec<int>& sec2orig, int k) {
   RVec<int> out;
   for (const auto& v : v0s.vtx) {
     int idx = -1;
-    if (k < (int)v.reco_ind.size()) {
-      int s = v.reco_ind[k];
+    const int slot = legSlot(v, k);
+    if (slot < (int)v.reco_ind.size()) {
+      int s = v.reco_ind[slot];
       if (s >= 0 && s < (int)sec2orig.size()) idx = sec2orig[s];
     }
     out.push_back(idx);
@@ -497,93 +519,41 @@ inline RVec<int> candDaughterOrigIdx(const VertexingUtils::FCCAnalysesV0& v0s,
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Pointing of every V0 candidate at the nearest SV (largest cos between the
-// candidate momentum and the SV->candidate line). FEATURE ONLY: no feedback into
-// selection. SVs sharing a daughter track are excluded, both legs walked through
-// sec2orig into the ORIGINAL Tracks space (unmapped -1 never matches, veto fails
-// open). Sentinels cos=-2, sig=-1, idx=-1 when no usable SV remains; pointSig is
-// ALSO -1 on a singular covariance, so test "no SV" on idx, never on pointSig.
-// ---------------------------------------------------------------------------
-struct V0SVPointing {
-  RVec<float> cosPoint;  // cos(candidate momentum, SV->candidate vector)
-  RVec<float> pointSig;  // transverse pointing significance wrt that SV
-  RVec<int>   svIdx;     // index of that SV in the SV collection
-};
-
-inline V0SVPointing candSVPointing(const VertexingUtils::FCCAnalysesV0& v0s,
-                                   const VertexingUtils::FCCAnalysesV0& svs,
-                                   const RVec<int>& sec2orig) {
-  V0SVPointing out;
-  const int nSec = (int)sec2orig.size();
-  auto toOrig = [&](int s) { return (s >= 0 && s < nSec) ? sec2orig[s] : -1; };
-
-  std::vector<std::vector<int>> sv_orig(svs.vtx.size());
-  for (size_t s = 0; s < svs.vtx.size(); ++s)
-    for (int t : svs.vtx[s].reco_ind) {
-      int o = toOrig(t);
-      if (o >= 0) sv_orig[s].push_back(o);
-    }
-
-  for (const auto& v : v0s.vtx) {
-    int o1 = (v.reco_ind.size() > 0) ? toOrig(v.reco_ind[0]) : -1;
-    int o2 = (v.reco_ind.size() > 1) ? toOrig(v.reco_ind[1]) : -1;
-    TVector3 x(v.vertex.position[0], v.vertex.position[1], v.vertex.position[2]);
-    TVector3 p(0., 0., 0.);
-    for (const auto& tp : v.updated_track_momentum_at_vertex) p += tp;
-
-    int best = -1;
-    double best_cos = -2.;
-    if (p.Mag() > 0.) {
-      for (size_t s = 0; s < svs.vtx.size(); ++s) {
-        bool shared = false;
-        for (int o : sv_orig[s])
-          if (o == o1 || o == o2) { shared = true; break; }
-        if (shared) continue;
-        const auto& sv = svs.vtx[s].vertex;
-        TVector3 d = x - TVector3(sv.position[0], sv.position[1], sv.position[2]);
-        double dm = d.Mag();
-        if (dm <= 0.) continue;
-        double cp = d.Dot(p) / (dm * p.Mag());
-        if (best < 0 || cp > best_cos) { best_cos = cp; best = (int)s; }
-      }
-    }
-    if (best < 0) {
-      out.cosPoint.push_back(-2.);
-      out.pointSig.push_back(-1.);
-      out.svIdx.push_back(-1);
-      continue;
-    }
-    const auto& sv = svs.vtx[best].vertex;
-    TVector3 d = x - TVector3(sv.position[0], sv.position[1], sv.position[2]);
-    out.cosPoint.push_back(best_cos);
-    out.pointSig.push_back(pointSigTransverse(d, p, v.vertex.covMatrix,
-                                              sv.covMatrix));
-    out.svIdx.push_back(best);
-  }
-  return out;
-}
-
 // Measurement index of every original track index, or -1: the dE/dx join built
 // ONCE per collection per event, in place of a scan per requested track. A
-// track measured twice keeps the first measurement, as the scan did.
-// An entry is -1 when the measurement fails the shared validity gate (value ==
+// track measured twice keeps the LAST measurement, as the particle-flow join
+// does. That entry is then -1 when it fails the shared validity gate (value ==
 // omega of the track = the failed-leg sentinel, or non-finite/non-positive
-// value or error), so value and error branches share one lookup.
+// value or error), so value and error branches share one lookup; gate = false
+// accepts every linked measurement. Sized by the track count: callers index the
+// result by original Tracks index.
 inline RVec<int> dedxIndexByTrack(const RVec<float>& value,
                                   const RVec<float>& error,
                                   const RVec<int>& meas_track_idx,
-                                  const RVec<edm4hep::TrackState>& trackStates) {
-  RVec<int> out(trackStates.size(), -1);
-  std::vector<char> seen(out.size(), 0);
+                                  const RVec<edm4hep::TrackData>& tracks,
+                                  const RVec<edm4hep::TrackState>& trackStates,
+                                  bool gate = true) {
+  RVec<int> out(tracks.size(), -1);
   const size_t nm = std::min({value.size(), error.size(),
                               meas_track_idx.size()});
   for (size_t j = 0; j < nm; ++j) {
     const int t = meas_track_idx[j];
-    if (t < 0 || t >= (int)out.size() || seen[t]) continue;
-    seen[t] = 1;
-    if (AlephDedx::dEdxValid(value[j], error[j], trackStates[t].omega))
-      out[t] = (int)j;
+    // out-of-range relation entry = corrupt input: fail loudly
+    if (t < 0 || t >= (int)out.size())
+      throw std::runtime_error(
+          "AlephV0New::dedxIndexByTrack: dEdx->Track relation entry out of range");
+    out[t] = (int)j;
+  }
+  if (!gate) return out;
+  for (size_t t = 0; t < out.size(); ++t) {
+    const int j = out[t];
+    if (j < 0) continue;
+    const size_t stateIdx = tracks[t].trackStates_begin;
+    if (stateIdx >= trackStates.size())
+      throw std::runtime_error(
+          "AlephV0New::dedxIndexByTrack: Track->TrackState index out of range");
+    if (!AlephDedx::dEdxValid(value[j], error[j], trackStates[stateIdx].omega))
+      out[t] = -1;
   }
   return out;
 }
@@ -601,6 +571,329 @@ inline RVec<float> trackQuantityByIndex(const RVec<int>& want,
       if (j >= 0 && j < (int)values.size()) val = values[j];
     }
     out.push_back(val);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Jet-relative and per-jet tagger inputs. Everything below is derived from the
+// stored candidates, the primary vertex and the jets: no candidate is re-fitted
+// and no new tuned value enters.
+// ---------------------------------------------------------------------------
+
+// Undefined value of the jet-relative float branches, and of the per-jet int
+// branches that carry a flag rather than a count.
+constexpr float TAG_UNDEF = AlephTrkAux::kUndef;
+constexpr int TAG_UNDEF_INT = -1;
+
+// Summed daughter momentum at the fitted vertex [GeV] - the momentum the jet
+// assignment and every jet-relative quantity below use.
+inline TVector3 candMomentum(const VertexingUtils::FCCAnalysesVertex& v) {
+  TVector3 p(0., 0., 0.);
+  for (const auto& tp : v.updated_track_momentum_at_vertex) p += tp;
+  return p;
+}
+
+// Jet of every candidate, or -1 when it has none: closest dR between the
+// candidate momentum and the jet axis, the first jet winning a tie. Reproduces
+// the assignment that fills the per-jet mirror block, so the two are joinable.
+inline RVec<int> candJetIdx(const VertexingUtils::FCCAnalysesV0& v0s,
+                            const RVec<fastjet::PseudoJet>& jets) {
+  RVec<int> out;
+  for (const auto& v : v0s.vtx) {
+    int best = -1;
+    TVector3 p = candMomentum(v);
+    if (jets.size() > 0 && !(p.Mag() < AlephTrkAux::kAssignMinP)) {
+      double minDR = AlephTrkAux::kAssignDRInit;
+      best = 0;
+      for (size_t j = 0; j < jets.size(); ++j) {
+        double dR = p.DeltaR(TVector3(jets[j].px(), jets[j].py(), jets[j].pz()));
+        if (dR < minDR) { minDR = dR; best = (int)j; }
+      }
+    }
+    out.push_back(best);
+  }
+  return out;
+}
+
+// Jet-relative candidate kinematics, selected by `which`:
+// 0 = |p| / E_jet, 1 = (p . jet direction) / E_jet, 2 = |p x jet direction|
+// [GeV], 3 = dR between the candidate momentum and the jet axis. TAG_UNDEF when
+// the candidate has no jet or the jet has no direction/energy.
+inline RVec<float> candJetVar(const VertexingUtils::FCCAnalysesV0& v0s,
+                              const RVec<fastjet::PseudoJet>& jets,
+                              const RVec<int>& jetIdx, int which) {
+  RVec<float> out;
+  for (size_t c = 0; c < v0s.vtx.size(); ++c) {
+    float val = TAG_UNDEF;
+    const int j = (c < jetIdx.size()) ? jetIdx[c] : -1;
+    if (j >= 0 && j < (int)jets.size()) {
+      TVector3 ax(jets[j].px(), jets[j].py(), jets[j].pz());
+      const double ej = jets[j].e();
+      if (ax.Mag() > 0.) {
+        TVector3 p = candMomentum(v0s.vtx[c]);
+        TVector3 jh = ax.Unit();
+        if (which == 0)      { if (ej > 0.) val = p.Mag() / ej; }
+        else if (which == 1) { if (ej > 0.) val = p.Dot(jh) / ej; }
+        else if (which == 2) { val = p.Cross(jh).Mag(); }
+        else                 { val = p.DeltaR(ax); }
+      }
+    }
+    out.push_back(val);
+  }
+  return out;
+}
+
+// Momentum rank of every candidate among the candidates of its own jet,
+// 1 = leading; -1 for a candidate without a jet. An exact momentum tie is
+// broken by candidate order.
+inline RVec<int> candRankInJet(const VertexingUtils::FCCAnalysesV0& v0s,
+                               const RVec<int>& jetIdx) {
+  const size_t n = v0s.vtx.size();
+  RVec<int> out(n, -1);
+  std::vector<double> pm(n, 0.);
+  for (size_t c = 0; c < n; ++c) pm[c] = candMomentum(v0s.vtx[c]).Mag();
+  for (size_t c = 0; c < n; ++c) {
+    if (c >= jetIdx.size() || jetIdx[c] < 0) continue;
+    int rank = 1;
+    for (size_t k = 0; k < n && k < jetIdx.size(); ++k) {
+      if (k == c || jetIdx[k] != jetIdx[c]) continue;
+      if (pm[k] > pm[c] || (pm[k] == pm[c] && k < c)) ++rank;
+    }
+    out[c] = rank;
+  }
+  return out;
+}
+
+// Transverse flight length of every candidate vertex from the reference vertex
+// [cm]; the 3D one is candDxyz. TAG_UNDEF when the reference vertex has fewer
+// than kPVMinTracks tracks, i.e. is the default vertex at the origin.
+inline RVec<float> candLxy(const VertexingUtils::FCCAnalysesV0& v0s,
+                           const VertexingUtils::FCCAnalysesVertex& PV) {
+  RVec<float> out;
+  if (PV.ntracks < AlephTrkAux::kPVMinTracks)
+    return RVec<float>(v0s.vtx.size(), TAG_UNDEF);
+  TVector3 pv(PV.vertex.position[0], PV.vertex.position[1], PV.vertex.position[2]);
+  for (const auto& v : v0s.vtx) {
+    TVector3 x(v.vertex.position[0], v.vertex.position[1], v.vertex.position[2]);
+    out.push_back((x - pv).Perp());
+  }
+  return out;
+}
+
+// Flight-length significance L / sigma_L, with sigma_L the candidate and
+// reference position covariances summed and projected on the flight direction:
+// which 0 = transverse (xy), 1 = 3D. TAG_UNDEF for a vanishing flight length, a
+// non-positive projected variance, or a reference vertex with fewer than
+// kPVMinTracks tracks (the default vertex at the origin).
+inline RVec<float> candFlightSig(const VertexingUtils::FCCAnalysesV0& v0s,
+                                 const VertexingUtils::FCCAnalysesVertex& PV,
+                                 int which) {
+  RVec<float> out;
+  if (PV.ntracks < AlephTrkAux::kPVMinTracks)
+    return RVec<float>(v0s.vtx.size(), TAG_UNDEF);
+  TVector3 pv(PV.vertex.position[0], PV.vertex.position[1], PV.vertex.position[2]);
+  double C[3][3];
+  for (const auto& v : v0s.vtx) {
+    TVector3 x(v.vertex.position[0], v.vertex.position[1], v.vertex.position[2]);
+    TVector3 d = x - pv;
+    if (which == 0) d.SetZ(0.);
+    const double L = d.Mag();
+    if (!(L > 0.)) { out.push_back(TAG_UNDEF); continue; }
+    AlephTrkAux::sumCovPacked(v.vertex.covMatrix, PV.vertex.covMatrix, C);
+    TVector3 u = d.Unit();
+    const double uv[3] = {u.X(), u.Y(), u.Z()};
+    double s2 = 0.;
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j) s2 += uv[i] * C[i][j] * uv[j];
+    out.push_back((s2 > 0. && std::isfinite(s2)) ? float(L / std::sqrt(s2))
+                                                 : TAG_UNDEF);
+  }
+  return out;
+}
+
+// Baryon sign of every candidate: +1 Lambda, -1 anti-Lambda, 0 for a Ks or an
+// undefined candidate. The proton is the higher-momentum leg, so the sign of
+// alpha is the proton charge - the same convention candAlpha writes (kApUndef
+// when undefined; |alpha| > 1 is physical when one leg points backwards). Any
+// value within 1 of the sentinel counts as undefined.
+inline RVec<int> candBaryon(const VertexingUtils::FCCAnalysesV0& v0s,
+                            const RVec<edm4hep::TrackState>& secondaries) {
+  RVec<int> out;
+  const RVec<float> alpha = candAlpha(v0s, secondaries);
+  for (size_t c = 0; c < v0s.pdgAbs.size(); ++c) {
+    int b = 0;
+    if (v0s.pdgAbs[c] == 3122 && c < alpha.size() &&
+        alpha[c] > float(AlephTrkAux::kApUndef) + 1.f)
+      b = (alpha[c] > 0.f) ? 1 : -1;
+    out.push_back(b);
+  }
+  return out;
+}
+
+// Physical charge of daughter k (0/1) of every candidate, legs in momentum
+// order: the secondary track states are flipD0_copy'ed, so the charge is
+// +sign(omega). 0 when the daughter is unavailable.
+inline RVec<int> candDaughterCharge(const VertexingUtils::FCCAnalysesV0& v0s,
+                                    const RVec<edm4hep::TrackState>& secondaries,
+                                    int k) {
+  RVec<int> out;
+  for (const auto& v : v0s.vtx) {
+    int q = 0;
+    const int slot = legSlot(v, k);
+    if (slot < (int)v.reco_ind.size()) {
+      const int s = v.reco_ind[slot];
+      if (s >= 0 && s < (int)secondaries.size())
+        q = (secondaries[s].omega > 0) ? 1 : -1;
+    }
+    out.push_back(q);
+  }
+  return out;
+}
+
+// Momentum magnitude of daughter k (0/1) at the fitted vertex [GeV], legs in
+// momentum order (k = 0 is the higher-momentum one); TAG_UNDEF when the
+// daughter is unavailable.
+inline RVec<float> candDaughterP(const VertexingUtils::FCCAnalysesV0& v0s,
+                                 int k) {
+  RVec<float> out;
+  for (const auto& v : v0s.vtx) {
+    float p = TAG_UNDEF;
+    const int slot = legSlot(v, k);
+    if (slot < (int)v.updated_track_momentum_at_vertex.size())
+      p = v.updated_track_momentum_at_vertex[slot].Mag();
+    out.push_back(p);
+  }
+  return out;
+}
+
+// Daughters of every candidate (0, 1 or 2) whose original track is also a
+// daughter of another stored candidate. Exclusive claiming makes this 0
+// everywhere, so a non-zero entry flags a broken claim.
+inline RVec<int> candNShared(const RVec<int>& d1, const RVec<int>& d2) {
+  const size_t n = std::min(d1.size(), d2.size());
+  std::map<int, int> nUse;
+  for (size_t c = 0; c < n; ++c) {
+    if (d1[c] >= 0) nUse[d1[c]]++;
+    if (d2[c] >= 0) nUse[d2[c]]++;
+  }
+  RVec<int> out;
+  for (size_t c = 0; c < n; ++c) {
+    int s = 0;
+    if (d1[c] >= 0 && nUse[d1[c]] > 1) ++s;
+    if (d2[c] >= 0 && nUse[d2[c]] > 1) ++s;
+    out.push_back(s);
+  }
+  return out;
+}
+
+// Candidates of each jet passing one species/tier combination. want_pdg = 310
+// or 3122; want_baryon = +1/-1 to require that baryon sign, 0 = either;
+// want_tight = 1 restricts to the tight tier, 0 counts every stored candidate.
+inline RVec<int> jetCountV0(const RVec<int>& jetIdx,
+                            const RVec<fastjet::PseudoJet>& jets,
+                            const RVec<int>& pdg, const RVec<int>& tight,
+                            const RVec<int>& baryon, int want_pdg,
+                            int want_baryon, int want_tight) {
+  RVec<int> out(jets.size(), 0);
+  for (size_t c = 0; c < jetIdx.size(); ++c) {
+    const int j = jetIdx[c];
+    if (j < 0 || j >= (int)jets.size()) continue;
+    if (c >= pdg.size() || pdg[c] != want_pdg) continue;
+    if (want_tight && (c >= tight.size() || !tight[c])) continue;
+    if (want_baryon != 0 && (c >= baryon.size() || baryon[c] != want_baryon))
+      continue;
+    ++out[j];
+  }
+  return out;
+}
+
+// Candidate index of the leading (highest-momentum) candidate of each jet, -1
+// for a jet without candidates. Leading = rank 1 of candRankInJet.
+inline RVec<int> jetLeadIdx(const RVec<int>& jetIdx,
+                            const RVec<fastjet::PseudoJet>& jets,
+                            const RVec<int>& rank) {
+  RVec<int> out(jets.size(), -1);
+  for (size_t c = 0; c < jetIdx.size() && c < rank.size(); ++c) {
+    const int j = jetIdx[c];
+    if (j >= 0 && j < (int)jets.size() && rank[c] == 1) out[j] = (int)c;
+  }
+  return out;
+}
+
+// Per-candidate quantity of each jet's leading candidate, `fill` for a jet
+// without one; the default suits the code-valued branches, flags pass
+// TAG_UNDEF_INT.
+inline RVec<int> jetLeadInt(const RVec<int>& lead, const RVec<int>& values,
+                            int fill = 0) {
+  RVec<int> out;
+  for (int c : lead)
+    out.push_back((c >= 0 && c < (int)values.size()) ? values[c] : fill);
+  return out;
+}
+
+inline RVec<float> jetLeadFloat(const RVec<int>& lead,
+                                const RVec<float>& values, float fill) {
+  RVec<float> out;
+  for (int c : lead)
+    out.push_back((c >= 0 && c < (int)values.size()) ? values[c] : fill);
+  return out;
+}
+
+// Summed momentum fraction of the TIGHT candidates of each jet; 0 for a jet
+// with none. Undefined fractions are left out of the sum.
+inline RVec<float> jetSumZ(const RVec<int>& jetIdx,
+                           const RVec<fastjet::PseudoJet>& jets,
+                           const RVec<float>& z, const RVec<int>& tight) {
+  RVec<float> out(jets.size(), 0.f);
+  for (size_t c = 0; c < jetIdx.size() && c < z.size() && c < tight.size(); ++c) {
+    const int j = jetIdx[c];
+    if (j < 0 || j >= (int)jets.size() || !tight[c] || z[c] < 0.f) continue;
+    out[j] += z[c];
+  }
+  return out;
+}
+
+// Distinct original tracks claimed by the TIGHT candidates of each jet.
+inline RVec<int> jetNTrkClaimed(const RVec<int>& jetIdx,
+                                const RVec<fastjet::PseudoJet>& jets,
+                                const RVec<int>& tight, const RVec<int>& d1,
+                                const RVec<int>& d2) {
+  RVec<int> out(jets.size(), 0);
+  std::vector<std::set<int>> claimed(jets.size());
+  for (size_t c = 0; c < jetIdx.size(); ++c) {
+    const int j = jetIdx[c];
+    if (j < 0 || j >= (int)jets.size()) continue;
+    if (c >= tight.size() || !tight[c]) continue;
+    if (c < d1.size() && d1[c] >= 0) claimed[j].insert(d1[c]);
+    if (c < d2.size() && d2[c] >= 0) claimed[j].insert(d2[c]);
+  }
+  for (size_t j = 0; j < jets.size(); ++j) out[j] = (int)claimed[j].size();
+  return out;
+}
+
+// Per-candidate quantity regrouped per jet, in the order the per-jet mirror
+// block is filled (candidate order within each jet), so the two are joinable.
+inline RVec<RVec<int>> jetGatherInt(const RVec<int>& jetIdx,
+                                    const RVec<fastjet::PseudoJet>& jets,
+                                    const RVec<int>& values) {
+  RVec<RVec<int>> out(jets.size());
+  for (size_t c = 0; c < jetIdx.size(); ++c) {
+    const int j = jetIdx[c];
+    if (j < 0 || j >= (int)jets.size()) continue;
+    out[j].push_back((c < values.size()) ? values[c] : -1);
+  }
+  return out;
+}
+
+// The candidate indices themselves, in the same per-jet order: the join key
+// from the per-jet mirror block back to the event-level candidate list.
+inline RVec<RVec<int>> jetGatherIdx(const RVec<int>& jetIdx,
+                                    const RVec<fastjet::PseudoJet>& jets) {
+  RVec<RVec<int>> out(jets.size());
+  for (size_t c = 0; c < jetIdx.size(); ++c) {
+    const int j = jetIdx[c];
+    if (j >= 0 && j < (int)jets.size()) out[j].push_back((int)c);
   }
   return out;
 }

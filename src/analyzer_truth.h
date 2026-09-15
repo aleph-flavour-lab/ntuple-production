@@ -24,6 +24,8 @@
 #include "FCCAnalyses/VertexingUtils.h"
 #include "FCCAnalyses/VertexFinderLCFIPlus.h"
 
+#include "analyzer_trkaux.h"
+
 namespace FCCAnalyses {
 namespace AlephTruth {
 
@@ -63,6 +65,23 @@ inline RVec<RVec<int>> buildTrackToMCs(size_t n_tracks,
   return out;
 }
 
+// PDG code of the MC particle linked to each original track index (first link
+// when a track has several), 0 for an invalid index or an unlinked track.
+inline RVec<int> trackTruePdg(const RVec<int>& origIdx,
+                              const RVec<RVec<int>>& trackToMCs,
+                              const RVec<edm4hep::MCParticleData>& mc) {
+  RVec<int> out;
+  for (int t : origIdx) {
+    int pdg = 0;
+    if (t >= 0 && t < (int)trackToMCs.size() && !trackToMCs[t].empty()) {
+      const int m = trackToMCs[t][0];
+      if (m >= 0 && m < (int)mc.size()) pdg = mc[m].PDG;
+    }
+    out.push_back(pdg);
+  }
+  return out;
+}
+
 // Mother-anchored true V0 finding (Ks -> pi+pi-, Lambda -> p pi).
 
 struct TrueV0s {
@@ -90,9 +109,14 @@ inline bool isTrackable(int genStatus) {
   return genStatus == 0 || (genStatus >= 10000 && genStatus < 100000);
 }
 
+// Two MC production points count as the same point below this distance [cm];
+// the one source of the tolerance used by the geometric decay-graph recovery
+// and by the conversion test.
+constexpr double kSamePointTol = 1e-4;
+
 inline TrueV0s findTrueV0s(const RVec<edm4hep::MCParticleData>& mc,
                            const RVec<RVec<int>>& mcToTracks,
-                           double tol = 1e-4) {
+                           double tol = kSamePointTol) {
   TrueV0s out;
   if (mc.empty()) return out;
   TVector3 genPV(mc[0].vertex.x, mc[0].vertex.y, mc[0].vertex.z);
@@ -186,31 +210,6 @@ inline TrueV0s findTrueV0s(const RVec<edm4hep::MCParticleData>& mc,
 // Index recovery: V0 candidates hold reco_ind into SecondaryTracks_looseBS;
 // map those entries back to original Tracks indices.
 
-// Mirror of AlephSelection::select_tracks_baseline returning, for each
-// selected entry (same order), the ORIGINAL index in the Tracks collection.
-inline RVec<int> selectedBaselineOriginalIndices(
-    const RVec<edm4hep::TrackData>& tracks_in,
-    const RVec<edm4hep::TrackState>& trackstates_in,
-    const RVec<edm4hep::TrackState>& selected_states_check) {
-  RVec<int> out;
-  for (size_t it = 0; it < tracks_in.size(); ++it) {
-    const auto& track = tracks_in[it];
-    if (track.ndf == 0) continue;
-    if (track.chi2 / track.ndf > 10.) continue;
-    auto n_trackstates = track.trackStates_end - track.trackStates_begin;
-    if (n_trackstates != 1)
-      throw std::runtime_error("AlephTruth: expected exactly one TrackState per Track");
-    const auto& ts = trackstates_in[track.trackStates_begin];
-    const auto& cov = ts.covMatrix;
-    if (cov[0] <= 1e-12 || cov[2] <= 1e-12 || cov[9] <= 1e-12) continue;
-    if (!std::isfinite(cov[0]) || !std::isfinite(cov[2]) || !std::isfinite(cov[9])) continue;
-    out.push_back(it);
-  }
-  if (out.size() != selected_states_check.size())
-    throw std::runtime_error("AlephTruth: baseline-selection mirror out of sync with analyzer.h");
-  return out;
-}
-
 // For each entry of SecondaryTracks (flipped param space), find its position in
 // the flipped selected-baseline list and return the original Tracks index.
 inline RVec<int> secondaryToOriginalTrack(
@@ -232,8 +231,9 @@ inline RVec<int> secondaryToOriginalTrack(
 }
 
 // Pair-index recovery for V0 candidates: the compiled get_V0s leaves
-// FCCAnalysesVertex.reco_ind empty, so replicate its booking loop (same
-// windows and exclusivity). classifyV0s throws on any pdg/invM mismatch.
+// FCCAnalysesVertex.reco_ind empty, so replicate its booking loop (same pair
+// preselection, windows and exclusivity). classifyV0s throws on any pdg/invM
+// mismatch, so every option the finder is called with must be passed here too.
 
 struct V0Pairs {
   RVec<int>    i1, i2;   // indices into the secondaries collection, booking order
@@ -243,15 +243,24 @@ struct V0Pairs {
 
 inline V0Pairs rerunV0Pairing(const RVec<edm4hep::TrackState>& np_tracks,
                               const VertexingUtils::FCCAnalysesVertex& PV,
-                              double solenoidBz,
-                              double chi2_cut = 10.) {
+                              double solenoidBz, bool loose_mass_window,
+                              double dR_pair_cut, bool exclusive_tracks,
+                              double chi2_cut = AlephLegacyV0::kChi2Cut) {
   V0Pairs out;
   const int nTr = np_tracks.size();
   if (nTr < 2) return out;
-  // loose windows from get_V0s_ALEPH (Gamma invM_high=-1 -> never booked)
-  const double Ks_lo = 0.1, Ks_hi = 1.4, Ks_dis = 0.1, Ks_cos = 0.999;
-  const double L_lo = 0.1, L_hi = 1.4, L_dis = 0.1, L_cos = 0.999;
-  const double G_hi = -1., G_dis = 0.9, G_cos = 0.999;
+  // same windows get_V0s_ALEPH hands the compiled finder, same tier switch
+  namespace LV0 = FCCAnalyses::AlephLegacyV0;
+  const double Ks_lo  = loose_mass_window ? LV0::kLooseKsMLo  : LV0::kTightKsMLo;
+  const double Ks_hi  = loose_mass_window ? LV0::kLooseKsMHi  : LV0::kTightKsMHi;
+  const double Ks_cos = loose_mass_window ? LV0::kLooseCosKs  : LV0::kTightCosKs;
+  const double L_lo   = loose_mass_window ? LV0::kLooseLamMLo : LV0::kTightLamMLo;
+  const double L_hi   = loose_mass_window ? LV0::kLooseLamMHi : LV0::kTightLamMHi;
+  const double L_cos  = loose_mass_window ? LV0::kLooseCosLam : LV0::kTightCosLam;
+  const double G_hi   = loose_mass_window ? LV0::kLooseGammaMHi : LV0::kTightGammaMHi;
+  const double G_cos  = loose_mass_window ? LV0::kLooseCosGamma : LV0::kTightCosGamma;
+  const double Ks_dis = LV0::kDisMinKs, L_dis = LV0::kDisMinLam,
+               G_dis = LV0::kDisMinGamma;
 
   RVec<bool> isInV0(nTr, false);
   RVec<edm4hep::TrackState> tr_pair(2);
@@ -267,12 +276,20 @@ inline V0Pairs rerunV0Pairing(const RVec<edm4hep::TrackState>& np_tracks,
   };
 
   for (int i = 0; i < nTr - 1; ++i) {
-    if (isInV0[i]) continue; // exclusive_tracks
+    if (exclusive_tracks && isInV0[i]) continue;
     tr_pair[0] = np_tracks[i];
+    const double phi_i = np_tracks[i].phi;
+    TVector3 p_i(std::cos(phi_i), std::sin(phi_i), np_tracks[i].tanLambda);
     for (int j = i + 1; j < nTr; ++j) {
-      if (isInV0[j]) continue;
+      if (exclusive_tracks && isInV0[j]) continue;
       if (tr_pair[0].omega * np_tracks[j].omega > 0) continue; // same charge
       tr_pair[1] = np_tracks[j];
+      // same direction preselection the compiled finder applies
+      if (dR_pair_cut > 0) {
+        const double phi_j = np_tracks[j].phi;
+        TVector3 p_j(std::cos(phi_j), std::sin(phi_j), np_tracks[j].tanLambda);
+        if (p_i.DeltaR(p_j) > dR_pair_cut) continue;
+      }
       RVec<double> cand = VertexFinderLCFIPlus::get_V0candidate(
           V0_vtx, tr_pair, PV, true, chi2_cut, solenoidBz);
       if (cand[0] == -1) continue;
@@ -354,7 +371,7 @@ inline V0TruthInfo classifyV0s(const VertexingUtils::FCCAnalysesV0& v0s,
                                const RVec<RVec<int>>& trackToMCs,
                                const RVec<edm4hep::MCParticleData>& mc,
                                const TrueV0s& tv,
-                               double tol = 1e-4) {
+                               double tol = kSamePointTol) {
   V0TruthInfo out;
   size_t n = v0s.vtx.size();
 
@@ -428,20 +445,14 @@ inline V0TruthInfo classifyV0s(const VertexingUtils::FCCAnalysesV0& v0s,
     // Armenteros-Podolanski from updated momenta at the fitted vertex, in
     // fitted pair order (i1,i2). SecondaryTracks are flipD0_copy'ed (raw ALEPH
     // omega carries -charge), so physical charge = +sign(omega).
-    float alpha = -99., qt = -99.;
+    float alpha = AlephTrkAux::kApUndef, qt = AlephTrkAux::kApUndef;
     const auto& upd = v0s.vtx[c].updated_track_momentum_at_vertex;
-    if (upd.size() == 2) {
-      TVector3 pa = upd[0], pb = upd[1];
-      TVector3 ptot = pa + pb;
-      if (ptot.Mag() > 0) {
-        double la = pa.Dot(ptot) / ptot.Mag();
-        double lb = pb.Dot(ptot) / ptot.Mag();
-        double q_a = (secondaries.at(vp.i1[c]).omega > 0) ? 1. : -1.;
-        double lplus = (q_a > 0) ? la : lb;
-        double lminus = (q_a > 0) ? lb : la;
-        alpha = (lplus + lminus != 0.) ? (lplus - lminus) / (lplus + lminus) : -99.;
-        qt = pa.Cross(ptot.Unit()).Mag();
-      }
+    if (upd.size() == 2 && (upd[0] + upd[1]).Mag() > 0) {
+      const double q_a = (secondaries.at(vp.i1[c]).omega > 0) ? 1. : -1.;
+      double a = AlephTrkAux::kApUndef, q = AlephTrkAux::kApUndef;
+      AlephTrkAux::apVars(upd[0], upd[1], q_a, a, q, AlephTrkAux::kApUndef);
+      alpha = a;
+      qt = q;
     }
 
     out.cls.push_back(cls);
@@ -479,9 +490,18 @@ inline RVec<int> trueV0FoundCorrect(const TrueV0s& tv, const V0TruthInfo& info,
 }
 
 // Simple event-order candidate kinematics (independent of jet assignment).
+// They compute what the VertexingUtils get_d3d_SV / get_chi2_SV / get_pMag_SV /
+// get_x_SV getters compute, but return RVec<float> instead of RVec<double>, so
+// the event-level candidate branches stay float-sized like the rest of the
+// per-candidate block; get_chi2_SV also scales by the number of degrees of
+// freedom, which is 1 only for a two-track vertex.
+// candDxyz returns kUndef when the reference vertex has fewer than kPVMinTracks
+// tracks, i.e. is the default vertex at the origin.
 inline RVec<float> candDxyz(const VertexingUtils::FCCAnalysesV0& v0s,
                             const VertexingUtils::FCCAnalysesVertex& PV) {
   RVec<float> out;
+  if (PV.ntracks < AlephTrkAux::kPVMinTracks)
+    return RVec<float>(v0s.vtx.size(), AlephTrkAux::kUndef);
   TVector3 pv(PV.vertex.position[0], PV.vertex.position[1], PV.vertex.position[2]);
   for (const auto& v : v0s.vtx) {
     TVector3 x(v.vertex.position[0], v.vertex.position[1], v.vertex.position[2]);

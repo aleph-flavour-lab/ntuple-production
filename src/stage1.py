@@ -4,6 +4,13 @@ from argparse import ArgumentParser
 
 BZ = 1.5  # solenoid field [T] — single source for the stage1 Define strings
 
+# Legacy V0 finder call options, shared by the finder itself and by the replica
+# that recovers its pair indices, so the two cannot diverge. The mass windows and
+# cuts behind the tier flag live in analyzer_trkaux.h.
+V0_LEGACY_LOOSE_MASS_WINDOW = "true"
+V0_LEGACY_DR_PAIR_CUT = "-1."   # dR preselection on track pairs (<= 0 disables)
+V0_LEGACY_EXCLUSIVE_TRACKS = "true"  # each track in at most one V0
+
 # Per-daughter dE/dx: the collections to read and the branch suffixes they
 # produce, in the order they are written.
 DEDX_COLLS = (("pads", "dEdxPads"), ("wires", "dEdxWires"))
@@ -13,6 +20,9 @@ DEDX_BRANCHES = tuple(f"dEdx_{_d}_{_q}" for _d, _ in DEDX_COLLS
 LEG_PID_BRANCHES = ("isChargedHad",)
 # particle-flow type code of a charged hadron (single source: analyzer_trkaux.h)
 PF_CHARGED_HAD = "FCCAnalyses::AlephTrkAux::kPFChargedHad"
+# sentinels of the V0-module tagger branches (single source: analyzer_v0new.h)
+V0N_TAG_UNDEF = "FCCAnalyses::AlephV0New::TAG_UNDEF"
+V0N_TAG_UNDEF_INT = "FCCAnalyses::AlephV0New::TAG_UNDEF_INT"
 
 # V0-module branch lists. Each entry is (branch suffix, Define expression), so
 # a name appears once and drives both the Define chain and the output list.
@@ -31,9 +41,9 @@ V0N_CAND_DEFINES = (
     ("pz",          "FCCAnalyses::AlephTruth::candPcomp(V0sNew_event, 2)"),
     ("cosPointing", "FCCAnalyses::AlephTruth::candCosPointing(V0sNew_event, VertexObject_looseBS)"),
     ("pointSig",    "FCCAnalyses::AlephV0New::candPointSig(V0sNew_event, VertexObject_looseBS)"),
-    # two-tier module: 1 = adopted tight package, 0 = loose training tier.
-    # Selecting v0n_tight==1 reproduces the historical tight-only output exactly.
-    ("tight",       "FCCAnalyses::AlephV0New::candTight(V0sNew_event, VertexObject_looseBS, SecondaryTracks_looseBS)"),
+    # two-tier module: v0n_tight==1 selects the tight tier, 0 the loose
+    # training tier.
+    ("tight",       "V0sNew_event.tight"),
     # ML-input pulls: cut variables in resolution units (signed; -999 undefined).
     ("bandSig",     "FCCAnalyses::AlephV0New::candBandSig(V0sNew_event, SecondaryTracks_looseBS)"),
     ("massSig",     "FCCAnalyses::AlephV0New::candMassSig(V0sNew_event)"),
@@ -41,8 +51,7 @@ V0N_CAND_DEFINES = (
     ("vx",          "FCCAnalyses::AlephTruth::candVtxPos(V0sNew_event, 0)"),
     ("vy",          "FCCAnalyses::AlephTruth::candVtxPos(V0sNew_event, 1)"),
     ("vz",          "FCCAnalyses::AlephTruth::candVtxPos(V0sNew_event, 2)"),
-    # vertex-fit covariance (packed lower triangle, cm^2 - same component
-    # order as Vertex_refit_cov_*)
+    # vertex-fit covariance (packed lower triangle xx,yx,yy,zx,zy,zz, cm^2)
     ("cov_xx",      "FCCAnalyses::AlephV0New::candCovComp(V0sNew_event, 0)"),
     ("cov_yx",      "FCCAnalyses::AlephV0New::candCovComp(V0sNew_event, 1)"),
     ("cov_yy",      "FCCAnalyses::AlephV0New::candCovComp(V0sNew_event, 2)"),
@@ -50,16 +59,57 @@ V0N_CAND_DEFINES = (
     ("cov_zy",      "FCCAnalyses::AlephV0New::candCovComp(V0sNew_event, 4)"),
     ("cov_zz",      "FCCAnalyses::AlephV0New::candCovComp(V0sNew_event, 5)"),
 )
+# daughter legs in momentum order: trk1 = higher momentum at the fitted vertex
 V0N_TRKS = ("trk1", "trk2")
+# The module claims tracks exclusively and fills reco_ind itself, so the pair
+# multiplicity and track-sharing fields are constant here and the daughter
+# indices are the v0n_trk{1,2}_origIdx branches: neither is written again.
 V0N_TRUTH_DEFINES = (
     ("v0n_class",                "v0ntruth.cls"),
     ("v0n_trueidx",              "v0ntruth.true_idx"),
-    ("v0n_pairmult",             "v0ntruth.pair_mult"),
-    ("v0n_trackshared",          "v0ntruth.track_shared"),
-    ("v0n_trk1",                 "v0ntruth.trk1"),
-    ("v0n_trk2",                 "v0ntruth.trk2"),
     ("truev0_foundnew_any",      "FCCAnalyses::AlephTruth::trueV0FoundAny(trueV0s, v0ntruth)"),
     ("truev0_foundnew_correct",  "FCCAnalyses::AlephTruth::trueV0FoundCorrect(trueV0s, v0ntruth, V0sNew_event)"),
+)
+# Jet-relative tagger inputs, one entry per stored candidate (v0n_pdg order).
+# Sentinel of the float branches: -1; a candidate without a jet has
+# v0n_jetIdx == -1, which is the reliable test.
+V0N_TAG_DEFINES = (
+    ("jetIdx",    "FCCAnalyses::AlephV0New::candJetIdx(V0sNew_event, jets)"),
+    ("z",         "FCCAnalyses::AlephV0New::candJetVar(V0sNew_event, jets, v0n_jetIdx, 0)"),
+    ("zL",        "FCCAnalyses::AlephV0New::candJetVar(V0sNew_event, jets, v0n_jetIdx, 1)"),
+    ("ptRel",     "FCCAnalyses::AlephV0New::candJetVar(V0sNew_event, jets, v0n_jetIdx, 2)"),
+    ("dRjet",     "FCCAnalyses::AlephV0New::candJetVar(V0sNew_event, jets, v0n_jetIdx, 3)"),
+    ("rankInJet", "FCCAnalyses::AlephV0New::candRankInJet(V0sNew_event, v0n_jetIdx)"),
+    # flight length from the PV; the 3D one is v0n_dxyz
+    ("Lxy",       "FCCAnalyses::AlephV0New::candLxy(V0sNew_event, VertexObject_looseBS)"),
+    ("LxySig",    "FCCAnalyses::AlephV0New::candFlightSig(V0sNew_event, VertexObject_looseBS, 0)"),
+    ("LxyzSig",   "FCCAnalyses::AlephV0New::candFlightSig(V0sNew_event, VertexObject_looseBS, 1)"),
+    ("baryon",    "FCCAnalyses::AlephV0New::candBaryon(V0sNew_event, SecondaryTracks_looseBS)"),
+    ("nShared",   "FCCAnalyses::AlephV0New::candNShared(v0n_trk1_origIdx, v0n_trk2_origIdx)"),
+)
+# Per-daughter tagger inputs: {i} = leg index (0/1), {pfx} = the leg's prefix.
+V0N_LEG_TAG_DEFINES = (
+    ("q",    "FCCAnalyses::AlephV0New::candDaughterCharge(V0sNew_event, SecondaryTracks_looseBS, {i})"),
+    ("p",    "FCCAnalyses::AlephV0New::candDaughterP(V0sNew_event, {i})"),
+    ("nTPC", "FCCAnalyses::AlephTrkAux::subdetHits({pfx}_origIdx, Tracks.subdetectorHitNumbers_begin, Tracks.subdetectorHitNumbers_end, _Tracks_subdetectorHitNumbers, 2)"),
+)
+# Per-jet tagger aggregates, one entry per jet (nesting of n_v0njet_ks), except
+# tight/evtIdx which are nested per candidate like the rest of the v0njet_* block.
+V0NJET_TAG_DEFINES = (
+    ("nKs_tight",     "FCCAnalyses::AlephV0New::jetCountV0(v0n_jetIdx, jets, v0n_pdg, v0n_tight, v0n_baryon, 310, 0, 1)"),
+    ("nLam_tight",    "FCCAnalyses::AlephV0New::jetCountV0(v0n_jetIdx, jets, v0n_pdg, v0n_tight, v0n_baryon, 3122, 1, 1)"),
+    ("nLambar_tight", "FCCAnalyses::AlephV0New::jetCountV0(v0n_jetIdx, jets, v0n_pdg, v0n_tight, v0n_baryon, 3122, -1, 1)"),
+    ("nKs_loose",     "FCCAnalyses::AlephV0New::jetCountV0(v0n_jetIdx, jets, v0n_pdg, v0n_tight, v0n_baryon, 310, 0, 0)"),
+    ("nLam_loose",    "FCCAnalyses::AlephV0New::jetCountV0(v0n_jetIdx, jets, v0n_pdg, v0n_tight, v0n_baryon, 3122, 0, 0)"),
+    ("leadZ",         f"FCCAnalyses::AlephV0New::jetLeadFloat(v0njet_lead, v0n_z, {V0N_TAG_UNDEF})"),
+    ("leadPdg",       "FCCAnalyses::AlephV0New::jetLeadInt(v0njet_lead, v0n_pdg)"),
+    ("leadTight",     f"FCCAnalyses::AlephV0New::jetLeadInt(v0njet_lead, v0n_tight, {V0N_TAG_UNDEF_INT})"),
+    ("leadBaryon",    "FCCAnalyses::AlephV0New::jetLeadInt(v0njet_lead, v0n_baryon)"),
+    ("sumZ_tight",    "FCCAnalyses::AlephV0New::jetSumZ(v0n_jetIdx, jets, v0n_z, v0n_tight)"),
+    ("nTrkClaimed",   "FCCAnalyses::AlephV0New::jetNTrkClaimed(v0n_jetIdx, jets, v0n_tight, v0n_trk1_origIdx, v0n_trk2_origIdx)"),
+    # join keys back onto the event-level candidate list
+    ("tight",         "FCCAnalyses::AlephV0New::jetGatherInt(v0n_jetIdx, jets, v0n_tight)"),
+    ("evtIdx",        "FCCAnalyses::AlephV0New::jetGatherIdx(v0n_jetIdx, jets)"),
 )
 # per-jet mirror of the old-finder v0_* block, on the new candidates
 V0NJET_DEFINES = (
@@ -153,6 +203,8 @@ class Analysis():
         # legacy-only code path for cross-checks.
         parser.add_argument('--oldV0', action='store_true',
                             help='Legacy V0 only: drop the two-tier V0 module (no v0n_*/v0njet_* branches, no V0 truth branches).')
+        parser.add_argument('--noV0TagVars', action='store_true',
+                            help='Drop the jet-relative V0 tagger inputs (v0n_jetIdx/z/zL/ptRel/... and the v0njet_* aggregates). Implied by --oldV0.')
         parser.add_argument('--noDedxGate', action='store_true',
                             help='accept every linked dE/dx measurement as valid, i.e. switch off the failed-leg omega sentinel gate; for converters that no longer copy omega into a failed leg.')
         # Parse additional arguments not known to the FCCAnalyses parsers
@@ -162,6 +214,8 @@ class Analysis():
 
         # Module switch: the two-tier V0 module by default, --oldV0 opts back out.
         self.do_v0new = not self.ana_args.oldV0
+        # Jet-relative tagger inputs of that module, on by default.
+        self.do_v0tagvars = self.do_v0new and not self.ana_args.noV0TagVars
         # V0 truth matching needs generator information: MC only.
         self.do_truth = self.do_v0new and not self.ana_args.doData
 
@@ -272,14 +326,18 @@ class Analysis():
 
         #set run options:
         
-        # analyzer_truth.h is loaded unconditionally: its truth-FREE helpers
-        # (selectedBaselineOriginalIndices / secondaryToOriginalTrack) back the
-        # always-written prim2origIdx / sec2origIdx index-map branches, on data too.
+        # analyzer_truth.h is loaded unconditionally: its truth-FREE helper
+        # secondaryToOriginalTrack backs the always-written prim2origIdx /
+        # sec2origIdx index-map branches, on data too.
         # analyzer_trkaux.h is unconditional too: it carries the vertex-fit glue
         # and the track -> ReconstructedParticle join behind the per-leg PF label.
         self.include_paths = ["analyzer.h", "analyzer_truth.h", "analyzer_trkaux.h"]
         if self.do_v0new:
             self.include_paths.append("analyzer_v0new.h")
+
+        # single source of the dE/dx validity gate, shared by the pfcand block
+        # and the candidate-leg join
+        self.dedx_gate = "false" if self.ana_args.noDedxGate else "true"
 
         # #submit to batch if requested:
         # self.run_batch = self.ana_args.batch # no longer supported
@@ -290,7 +348,7 @@ class Analysis():
         shared dEdxValid gate is applied here and both branches read -1."""
         for _det, _coll in DEDX_COLLS:
             df = df.Define(f"dedxJoin_{_det}",
-                           f"FCCAnalyses::AlephV0New::dedxIndexByTrack({_coll}.dQdx.value, {_coll}.dQdx.error, _{_coll}_track.index, _Tracks_trackStates)")
+                           f"FCCAnalyses::AlephV0New::dedxIndexByTrack({_coll}.dQdx.value, {_coll}.dQdx.error, _{_coll}_track.index, Tracks, _Tracks_trackStates, {self.dedx_gate})")
         return df
 
     def _define_dedx(self, df, legs):
@@ -447,7 +505,7 @@ class Analysis():
         # original-Tracks index maps for the primary/secondary splits (truth-free
         # track-state matching, written for data too). sec2origIdx is the join
         # that the V0 daughter branches need to reach the original tracks.
-        df = df.Define("selBaselineOrigIdx", "FCCAnalyses::AlephTruth::selectedBaselineOriginalIndices(Tracks, _Tracks_trackStates, trackstates_selected_baseline)")
+        df = df.Define("selBaselineOrigIdx", "tracks_selected_baseline_result.origIdx")
         df = df.Define("sec2origIdx",        "FCCAnalyses::AlephTruth::secondaryToOriginalTrack(SecondaryTracks_looseBS, trackstates_selected_baseline_flipped, selBaselineOrigIdx)")
         df = df.Define("prim2origIdx",       "FCCAnalyses::AlephTruth::secondaryToOriginalTrack(RecoedPrimaryTracks_looseBS, trackstates_selected_baseline_flipped, selBaselineOrigIdx)")
 
@@ -558,10 +616,10 @@ class Analysis():
             "FCCAnalyses::AlephSelection::get_V0s_ALEPH("
             "SecondaryTracks_looseBS, "
             "VertexObject_looseBS,"
-            f"{BZ}," #solenoidBz
-            "true," #loose_mass_window
-            "-1.," #dR preselection on track pairs (<=0 disables) - 0.4 tested, made it much worse
-            "true)" #exclusive tracks (each track in at most one V0) - TESTING against ntuples-withks
+            f"{BZ},"
+            f"{V0_LEGACY_LOOSE_MASS_WINDOW},"
+            f"{V0_LEGACY_DR_PAIR_CUT},"
+            f"{V0_LEGACY_EXCLUSIVE_TRACKS})"
         )
         df = df.Define("v0s_per_jet", "FCCAnalyses::AlephSelection::assign_V0s_to_jets(V0s_event, jets)")
         df = df.Define("v0_jets",  "v0s_per_jet.vtx")
@@ -598,7 +656,7 @@ class Analysis():
             # PV block above - truth-free track-state matching, available on data)
             # recover which track pair each candidate came from (compiled get_V0s leaves reco_ind empty);
             # classifyV0s cross-checks this replica against V0s_event pdg/invM and throws on mismatch
-            df = df.Define("v0pairs",       f"FCCAnalyses::AlephTruth::rerunV0Pairing(SecondaryTracks_looseBS, VertexObject_looseBS, {BZ})")
+            df = df.Define("v0pairs",       f"FCCAnalyses::AlephTruth::rerunV0Pairing(SecondaryTracks_looseBS, VertexObject_looseBS, {BZ}, {V0_LEGACY_LOOSE_MASS_WINDOW}, {V0_LEGACY_DR_PAIR_CUT}, {V0_LEGACY_EXCLUSIVE_TRACKS})")
             # truth classification of the reco V0 candidates (event order = V0s_event order)
             df = df.Define("v0truth",       f"FCCAnalyses::AlephTruth::classifyV0s(V0s_event, v0pairs, SecondaryTracks_looseBS, sec2origIdx, trackToMCs, {coll['GenParticles']}, trueV0s)")
             for _b, _e in TRUEV0_DEFINES:
@@ -618,6 +676,11 @@ class Analysis():
         if self.do_v0new:
             df = df.Define("V0sNew_event", f"FCCAnalyses::AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, {BZ})")
             df = df.Define("n_v0n_event",  "int(V0sNew_event.vtx.size())")
+            # the tight tier and the two hypotheses as collections of their own
+            # (copies of the same fitted candidates; every cand* helper takes them)
+            df = df.Define("V0sNewTight_event", "FCCAnalyses::AlephV0New::tightV0s(V0sNew_event)")
+            df = df.Define("Ks_event",          "FCCAnalyses::AlephV0New::getKs(V0sNewTight_event)")
+            df = df.Define("Lambda_event",      "FCCAnalyses::AlephV0New::getLambda(V0sNewTight_event)")
             # truth-free kinematic branches (available on data)
             for _b, _e in V0N_CAND_DEFINES:
                 df = df.Define(f"v0n_{_b}", _e)
@@ -629,9 +692,21 @@ class Analysis():
                                f"FCCAnalyses::AlephV0New::candDaughterOrigIdx(V0sNew_event, sec2origIdx, {_i})")
             df = self._define_dedx(df, [f"v0n_{_t}" for _t in V0N_TRKS])
             df = self._define_leg_pid(df, [f"v0n_{_t}" for _t in V0N_TRKS])
+            # jet-relative tagger inputs: the candidate seen from the jet it is
+            # assigned to, plus the per-daughter charge, momentum and TPC hits.
+            if self.do_v0tagvars:
+                for _b, _e in V0N_TAG_DEFINES:
+                    df = df.Define(f"v0n_{_b}", _e)
+                for _i, _t in enumerate(V0N_TRKS):
+                    for _b, _e in V0N_LEG_TAG_DEFINES:
+                        df = df.Define(f"v0n_{_t}_{_b}",
+                                       _e.format(i=_i, pfx=f"v0n_{_t}"))
             # per-jet new-module V0s: mirror of the old-finder v0_* block on
-            # V0sNew_event, so v0_* vs v0njet_* is an apples-to-apples comparison
-            # at jet level (prel = pT wrt jet axis, thetarel/phirel wrt the jet).
+            # V0sNew_event (prel = pT wrt jet axis, thetarel/phirel wrt the jet).
+            # Layout and candidate lists are comparable with v0_*, but each
+            # block's momenta come from its own vertex fit (the legacy one from
+            # a second, rescaled fit), so momentum-derived branches are not the
+            # same estimator.
             df = df.Define("v0njet_per_jet", "FCCAnalyses::AlephSelection::assign_V0s_to_jets(V0sNew_event, jets)")
             df = df.Define("v0njet_jets",  "v0njet_per_jet.vtx")
             for _b, _e in V0NJET_DEFINES:
@@ -639,6 +714,11 @@ class Analysis():
             df = df.Define("n_v0njet_jets",    "FCCAnalyses::VertexingUtils::get_n_SV_jets(v0njet_jets)")
             df = df.Define("n_v0njet_ks",      "FCCAnalyses::AlephSelection::count_V0type_jets(v0njet_pdg, 310)")
             df = df.Define("n_v0njet_lambda",  "FCCAnalyses::AlephSelection::count_V0type_jets(v0njet_pdg, 3122)")
+            # per-jet tagger aggregates over the same assignment
+            if self.do_v0tagvars:
+                df = df.Define("v0njet_lead", "FCCAnalyses::AlephV0New::jetLeadIdx(v0n_jetIdx, jets, v0n_rankInJet)")
+                for _b, _e in V0NJET_TAG_DEFINES:
+                    df = df.Define(f"v0njet_{_b}", _e)
             # truth classification (MC only; reco_ind is filled by the new module)
             if self.do_truth:
                 df = df.Define("v0npairs",     "FCCAnalyses::AlephTruth::pairsFromRecoInd(V0sNew_event)")
@@ -793,10 +873,8 @@ class Analysis():
         # df = df.Define("pfcand_dEdx_wires_error", "AlephSelection::get_dEdx_error(jet_constituents_dEdx_wires_objs)")
 
         # Get the dE/dx value and matching PID hypothesis pvalue from Bethe-Bloch fits for the jet constituents
-        dedx_gate = "false" if self.ana_args.noDedxGate else "true"
-
         ## Pads
-        df = df.Define("jet_constituents_dEdx_PIDhypo_pads_result", f"AlephSelection::build_constituents_dEdx_PIDhypo()(RecoParticles, _RecoParticles_tracks.index, dEdxPads, _dEdxPads_track.index, _jetc, Tracks, _Tracks_trackStates, false, {dedx_gate})" )
+        df = df.Define("jet_constituents_dEdx_PIDhypo_pads_result", f"AlephSelection::build_constituents_dEdx_PIDhypo()(RecoParticles, _RecoParticles_tracks.index, dEdxPads, _dEdxPads_track.index, _jetc, Tracks, _Tracks_trackStates, false, {self.dedx_gate})" )
         df = df.Define("jet_constituents_dEdx_pads_objs", "jet_constituents_dEdx_PIDhypo_pads_result.dedx_constituents")
         df = df.Define("pfcand_dEdx_pads_type", "AlephSelection::get_dEdx_type(jet_constituents_dEdx_pads_objs)")
         df = df.Define("pfcand_dEdx_pads_value", "AlephSelection::get_dEdx_value(jet_constituents_dEdx_pads_objs)")
@@ -811,7 +889,7 @@ class Analysis():
         df = df.Define("pfcand_PID_pval_pads_proton", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_pads, 4)")
 
         ## Wires
-        df = df.Define("jet_constituents_dEdx_PIDhypo_wires_result", f"AlephSelection::build_constituents_dEdx_PIDhypo()(RecoParticles, _RecoParticles_tracks.index, dEdxWires, _dEdxWires_track.index, _jetc, Tracks, _Tracks_trackStates, true, {dedx_gate})" )
+        df = df.Define("jet_constituents_dEdx_PIDhypo_wires_result", f"AlephSelection::build_constituents_dEdx_PIDhypo()(RecoParticles, _RecoParticles_tracks.index, dEdxWires, _dEdxWires_track.index, _jetc, Tracks, _Tracks_trackStates, true, {self.dedx_gate})" )
         df = df.Define("jet_constituents_dEdx_wires_objs", "jet_constituents_dEdx_PIDhypo_wires_result.dedx_constituents")
         df = df.Define("pfcand_dEdx_wires_type", "AlephSelection::get_dEdx_type(jet_constituents_dEdx_wires_objs)")
         df = df.Define("pfcand_dEdx_wires_value", "AlephSelection::get_dEdx_value(jet_constituents_dEdx_wires_objs)")
@@ -863,11 +941,21 @@ class Analysis():
                 f"v0n_{t}_{b}" for t in V0N_TRKS
                 for b in DEDX_BRANCHES + LEG_PID_BRANCHES
             ] + [
-                # per-jet new-module V0s (mirror of the old v0_* block) -> jet-level apples-to-apples
+                # per-jet new-module V0s: same layout as the old v0_* block, but
+                # momentum-derived branches come from a different vertex fit
                 "n_v0njet_jets", "n_v0njet_ks", "n_v0njet_lambda",
             ] + [
                 f"v0njet_{b}" for b, _ in V0NJET_DEFINES
             ]
+            if self.do_v0tagvars:
+                module_branches += [
+                    f"v0n_{b}" for b, _ in V0N_TAG_DEFINES
+                ] + [
+                    f"v0n_{t}_{b}" for t in V0N_TRKS
+                    for b, _ in V0N_LEG_TAG_DEFINES
+                ] + [
+                    f"v0njet_{b}" for b, _ in V0NJET_TAG_DEFINES
+                ]
             if self.do_truth:
                 module_branches += [n for n, _ in V0N_TRUTH_DEFINES]
 

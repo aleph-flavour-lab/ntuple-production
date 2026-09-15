@@ -35,6 +35,22 @@ inline VertexingUtils::FCCAnalysesVertex fitTracksCm(
   return v;
 }
 
+// Closest-dR assignment of a vertex to a jet, shared by the per-candidate and
+// the per-jet fills: kAssignMinP is the smallest vertex momentum that still
+// gets a jet, kAssignDRInit the dR seed that any jet of the event beats.
+constexpr double kAssignMinP = 1e-10;
+constexpr double kAssignDRInit = 99.;
+
+// Undefined Armenteros-Podolanski variables: the value the candidate-level
+// alpha/qt carry when the pair is unusable, far below any physical alpha.
+constexpr double kApUndef = -99.;
+
+// Smallest track multiplicity of a usable primary vertex: below it the PV is
+// the default object at the origin, so distances measured from it are meaningless.
+constexpr int kPVMinTracks = 2;
+// Undefined value of a float branch (missing input, guarded quantity).
+constexpr float kUndef = -1.f;
+
 // Armenteros-Podolanski variables of a track pair: qt and
 // alpha = (pL+ - pL-)/(pL+ + pL-). q1sign = physical charge of p1; for a
 // same-charge pair the labels are conventional, so pass +1 to order by p1.
@@ -108,7 +124,50 @@ inline RVec<int> legIsChargedHad(const RVec<int>& orig_idx,
   return out;
 }
 
+// Component `which` (0 = VDET, 1 = ITC, 2 = TPC) of the per-track
+// subdetectorHitNumbers block, by original-Tracks index. -1 when the block is
+// missing or too short. Same source the per-constituent hit counts read.
+inline RVec<int> subdetHits(const RVec<int>& orig_idx,
+                            const RVec<unsigned int>& begin,
+                            const RVec<unsigned int>& end,
+                            const RVec<int>& values, int which) {
+  RVec<int> out;
+  for (int o : orig_idx) {
+    int v = -1;
+    if (o >= 0 && o < (int)begin.size() && o < (int)end.size()) {
+      unsigned int b = begin[o], e = end[o];
+      if (b + which < e && b + which < values.size()) v = values[b + which];
+    }
+    out.push_back(v);
+  }
+  return out;
+}
+
 }  // namespace AlephTrkAux
+
+// ---------------------------------------------------------------------------
+// Legacy V0 finder configuration: the ONE source of the windows handed to the
+// compiled finder and of the replica that recovers its pair indices. Masses in
+// GeV, displacements in cm. The loose tier is the wide-open ML/booking tier;
+// its gamma upper mass is negative, so a conversion is never booked.
+// ---------------------------------------------------------------------------
+namespace AlephLegacyV0 {
+
+constexpr double kLooseKsMLo    = 0.1,  kLooseKsMHi    = 1.4;
+constexpr double kLooseLamMLo   = 0.1,  kLooseLamMHi   = 1.4;
+constexpr double kLooseGammaMLo = 0.0,  kLooseGammaMHi = -1.;
+constexpr double kLooseCosKs = 0.999, kLooseCosLam = 0.999, kLooseCosGamma = 0.999;
+
+constexpr double kTightKsMLo    = 0.453, kTightKsMHi    = 0.553;
+constexpr double kTightLamMLo   = 1.06,  kTightLamMHi   = 1.16;
+constexpr double kTightGammaMLo = 0.0,   kTightGammaMHi = 0.005;
+constexpr double kTightCosKs = 0.999, kTightCosLam = 0.99995, kTightCosGamma = 0.99995;
+
+// common to both tiers
+constexpr double kDisMinKs = 0.1, kDisMinLam = 0.1, kDisMinGamma = 0.9;
+constexpr double kChi2Cut = 10.;
+
+}  // namespace AlephLegacyV0
 }  // namespace FCCAnalyses
 
 #endif  // ALEPH_TRKAUX_H

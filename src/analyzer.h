@@ -44,6 +44,7 @@
 #include "FCCAnalyses/VertexingUtils.h"
 #include "FCCAnalyses/VertexFinderLCFIPlus.h" 
 #include "aleph_units.h"
+#include "analyzer_trkaux.h"
 
 #include "TVector3.h"
 
@@ -191,7 +192,7 @@ get_isChargedHad(const rv::RVec<FCCAnalysesJetConstituents>& jcs) {
     FCCAnalysesJetConstituentsData mask;
     mask.reserve(jet.size());
     for (const auto& c : jet)
-      mask.push_back((std::abs(c.charge) > 0 && std::abs(c.mass - 0.13957) < 1e-3) ? 1.f : 0.f);
+      mask.push_back((std::abs(c.charge) > 0 && std::abs(c.mass - AlephMasses::kPiCh) < 1e-3) ? 1.f : 0.f);
     out.push_back(std::move(mask));
   }
   return out;
@@ -272,6 +273,9 @@ get_track_chi2_o_ndf(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in){
 struct SelectedTracks {
   ROOT::VecOps::RVec<edm4hep::TrackData>  tracks;
   ROOT::VecOps::RVec<edm4hep::TrackState> trackStates;
+  // index of each kept entry in the ORIGINAL Tracks collection, same order as
+  // trackStates; the single source of the selected -> original index map
+  ROOT::VecOps::RVec<int>                 origIdx;
 };
 
 
@@ -284,7 +288,9 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
 
   // ROOT::VecOps::RVec<edm4hep::TrackData> tracks_out;
 
-  for (const auto &track : tracks_in) {
+  for (size_t track_index = 0; track_index < tracks_in.size(); ++track_index) {
+
+    const auto &track = tracks_in[track_index];
 
     // track chi2 selection needs to use track object itself 
     if (track.ndf == 0){
@@ -320,6 +326,7 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
       }
       
       selected_tracks_and_states.trackStates.push_back(trackstate);
+      selected_tracks_and_states.origIdx.push_back(int(track_index));
     }
 
     // if all passed, track is selected
@@ -348,6 +355,7 @@ select_tracks_impactparameters(const SelectedTracks& input,
 
         selected.tracks.push_back(track);
         selected.trackStates.push_back(state);
+        selected.origIdx.push_back(input.origIdx[i]);
     }
 
     return selected;
@@ -1466,23 +1474,25 @@ get_V0s_ALEPH(
     double solenoidBz = 1.5, bool loose_mass_window = false,
     double dR_pair_cut = -1., bool exclusive_tracks = false)
 {
+  namespace LV0 = FCCAnalyses::AlephLegacyV0;
+  // windows per hypothesis: mass window [GeV], dis_min [cm], cosAng
   if (loose_mass_window){
       return FCCAnalyses::VertexFinderLCFIPlus::get_V0s(
           np_tracks, PV,
-          0.1, 1.4, 0.1, 0.999,    // Ks:     mass window [GeV], dis_min [cm=1mm], cosAng
-          0.1, 1.4, 0.1, 0.999,    // Lambda: dis_min 0.1 cm = 1 mm physical
-          0.0, -1,  0.9, 0.999,    // Gamma:  invM_max=-1 (never passes, matching ntuplizer loose mode)
-          10., solenoidBz, dR_pair_cut, exclusive_tracks
+          LV0::kLooseKsMLo,    LV0::kLooseKsMHi,    LV0::kDisMinKs,    LV0::kLooseCosKs,
+          LV0::kLooseLamMLo,   LV0::kLooseLamMHi,   LV0::kDisMinLam,   LV0::kLooseCosLam,
+          LV0::kLooseGammaMLo, LV0::kLooseGammaMHi, LV0::kDisMinGamma, LV0::kLooseCosGamma,
+          LV0::kChi2Cut, solenoidBz, dR_pair_cut, exclusive_tracks
       );
   }
 
   else{
       return FCCAnalyses::VertexFinderLCFIPlus::get_V0s(
           np_tracks, PV,
-          0.453, 0.553, 0.1, 0.999,    // Ks:     mass window [GeV], dis_min [cm=1mm], cosAng
-          1.06,  1.16,  0.1, 0.99995,  // Lambda
-          0.0,   0.005, 0.9, 0.99995,  // Gamma
-          10., solenoidBz, dR_pair_cut, exclusive_tracks
+          LV0::kTightKsMLo,    LV0::kTightKsMHi,    LV0::kDisMinKs,    LV0::kTightCosKs,
+          LV0::kTightLamMLo,   LV0::kTightLamMHi,   LV0::kDisMinLam,   LV0::kTightCosLam,
+          LV0::kTightGammaMLo, LV0::kTightGammaMHi, LV0::kDisMinGamma, LV0::kTightCosGamma,
+          LV0::kChi2Cut, solenoidBz, dR_pair_cut, exclusive_tracks
       );
   }
 }
@@ -1510,8 +1520,8 @@ assign_V0s_to_jets(
     ROOT::VecOps::RVec<TVector3> v0_momenta = FCCAnalyses::VertexingUtils::get_p_SV(v0s.vtx);
     for (unsigned int i = 0; i < v0s.vtx.size(); i++) {
         TVector3 v0_p = v0_momenta.at(i);
-        if (v0_p.Mag() < 1e-10) continue;
-        double minDR = 99.;
+        if (v0_p.Mag() < AlephTrkAux::kAssignMinP) continue;
+        double minDR = AlephTrkAux::kAssignDRInit;
         unsigned int best_jet = 0;
         for (unsigned int j = 0; j < jets.size(); j++) {
             double dR = v0_p.DeltaR(TVector3(jets[j].px(), jets[j].py(), jets[j].pz()));
