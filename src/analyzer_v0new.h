@@ -11,7 +11,6 @@
 #include <cmath>
 #include <map>
 #include <numeric>
-#include <set>
 #include <stdexcept>
 #include <vector>
 
@@ -24,13 +23,13 @@
 #include "edm4hep/TrackData.h"
 #include "edm4hep/TrackState.h"
 #include "FCCAnalyses/VertexingUtils.h"
-#include "FCCAnalyses/VertexFitterSimple.h"
 
 namespace FCCAnalyses {
 namespace AlephV0New {
 
 using ROOT::VecOps::RVec;
 using AlephTrkAux::apVars;
+using AlephTrkAux::candMomentum;
 using AlephTrkAux::fitTracksCm;
 
 constexpr double m_pi_ = AlephMasses::kPiCh;
@@ -85,7 +84,9 @@ constexpr double kPointTierLoP = 2., kPointTierHiP = 4.;
 constexpr double kBandTierP = 15.;
 
 // Shared per-hypothesis acceptance helpers, used by findV0s for both tiers.
-inline double ksPointThr(double pmag, double lowp, double midp, double highp) {
+inline double ksPointThr(double pmag, double lowp = TIGHT_COS_KS_LOWP,
+                         double midp = TIGHT_COS_KS_MIDP,
+                         double highp = TIGHT_COS_KS_HIGHP) {
   return (pmag < kPointTierLoP) ? lowp : (pmag < kPointTierHiP) ? midp : highp;
 }
 // Lambda tight pointing tiers — same tier boundaries as Ks, different low-p
@@ -105,7 +106,8 @@ inline double ksBandEll(double alpha, double qt, double pmag) {
 inline double sigmaEllKs(double pmag) {
   return SIG_ELL_KS_A + SIG_ELL_KS_B * pmag;
 }
-inline double ksBandThr(double pmag, double floor_, double nsig_lo, double nsig_hi) {
+inline double ksBandThr(double pmag, double nsig_lo, double nsig_hi,
+                        double floor_ = AP_BAND_KS) {
   // resolution-scaled width; floor_ acts as the low-p floor
   double nsig = (pmag < kBandTierP) ? nsig_lo : nsig_hi;
   return std::max(floor_, nsig * sigmaEllKs(pmag));
@@ -118,7 +120,8 @@ inline double lamBandEll(double alpha, double qt, double pmag) {
   return std::sqrt(std::pow((std::abs(alpha) - ALPHA0_L) / amp, 2) +
                    std::pow(qt / PSTAR_L, 2));
 }
-inline double lamBandThr(double pmag, double lo, double hi) {
+inline double lamBandThr(double pmag, double lo = LOOSE_LAM_BAND_LO,
+                         double hi = LOOSE_LAM_BAND_HI) {
   return (pmag < LAM_P_LO) ? lo : (pmag < LAM_P_HI) ? lo + (hi - lo) * (pmag - LAM_P_LO) / (LAM_P_HI - LAM_P_LO) : hi;
 }
 inline double sigmaEllLam(double pmag) {
@@ -132,14 +135,15 @@ inline double sigmaEllLam(double pmag) {
 inline double lamBandThrTight(double pmag, double floor_ = AP_LAM_LO,
                               double nsig = TIGHT_LAM_NSIG) {
   return std::min(std::max(floor_, nsig * sigmaEllLam(pmag)),
-                  lamBandThr(pmag, LOOSE_LAM_BAND_LO, LOOSE_LAM_BAND_HI));
+                  lamBandThr(pmag));
 }
 
 // LOOSE Lambda AP band: BAND-DISTANCE convention — acceptance is a fixed
 // fraction of the ramp half-width (|ell-1| < LOOSE_LAM_BAND_FRAC * thr(p)),
 // floored at the tight threshold (tight_floor mirrors the caller's tight-clause
 // floor) so the loose tier stays a superset of the tight one at every p.
-inline double lamBandThrLoose(double pmag, double lo, double hi,
+inline double lamBandThrLoose(double pmag, double lo = LOOSE_LAM_BAND_LO,
+                              double hi = LOOSE_LAM_BAND_HI,
                               double tight_floor = AP_LAM_LO) {
   return std::max(LOOSE_LAM_BAND_FRAC * lamBandThr(pmag, lo, hi),
                   lamBandThrTight(pmag, tight_floor));
@@ -148,12 +152,10 @@ inline double lamBandThrLoose(double pmag, double lo, double hi,
 // TIGHT (adopted) package for ONE hypothesis: mass window, p-tiered pointing
 // and AP band, plus the qT veto for Lambda. Single source for the finder tier.
 inline bool ksTight(double m, double cp, double pmag, double alpha, double qt) {
-  bool ok = (m > KS_M_LO && m < KS_M_HI) &&
-            cp > ksPointThr(pmag, TIGHT_COS_KS_LOWP, TIGHT_COS_KS_MIDP,
-                            TIGHT_COS_KS_HIGHP);
+  bool ok = (m > KS_M_LO && m < KS_M_HI) && cp > ksPointThr(pmag);
   if (ok)
     ok = std::abs(ksBandEll(alpha, qt, pmag) - 1.) <
-         ksBandThr(pmag, AP_BAND_KS, TIGHT_NSIG_KS_LOWP, TIGHT_NSIG_KS_HIGHP);
+         ksBandThr(pmag, TIGHT_NSIG_KS_LOWP, TIGHT_NSIG_KS_HIGHP);
   return ok;
 }
 
@@ -163,14 +165,6 @@ inline bool lamTight(double m, double cp, double pmag, double alpha, double qt) 
   if (ok)
     ok = std::abs(lamBandEll(alpha, qt, pmag) - 1.) < lamBandThrTight(pmag);
   return ok;
-}
-
-// momenta of the two tracks at the fitted vertex, already rescaled to the true
-// GeV scale inside findV0s
-inline void pairMomenta(const VertexingUtils::FCCAnalysesVertex& v,
-                        TVector3& p1, TVector3& p2) {
-  p1 = v.updated_track_momentum_at_vertex[0];
-  p2 = v.updated_track_momentum_at_vertex[1];
 }
 
 inline double invMass(const TVector3& p1, double m1, const TVector3& p2, double m2) {
@@ -208,11 +202,11 @@ inline V0Sel evalV0Selection(double chi2, double dis, double cp, double pmag,
     okKs = inWinKs && cp > LOOSE_COS_POINT;
     if (okKs)
       okKs = std::abs(ksBandEll(alpha, qt, pmag) - 1.) <
-             ksBandThr(pmag, AP_BAND_KS, LOOSE_NSIG_KS, LOOSE_NSIG_KS);
+             ksBandThr(pmag, LOOSE_NSIG_KS, LOOSE_NSIG_KS);
     okLam = inWinLam && cp > LOOSE_COS_POINT && qt > LOOSE_QT_MIN_LAM;
     if (okLam)
       okLam = std::abs(lamBandEll(alpha, qt, pmag) - 1.) <
-              lamBandThrLoose(pmag, LOOSE_LAM_BAND_LO, LOOSE_LAM_BAND_HI, AP_LAM_LO);
+              lamBandThrLoose(pmag);
     if (!okKs && !okLam) return s;
   }
   double dks = std::abs(mks - MKS) / (0.5 * (KS_M_HI - KS_M_LO));
@@ -276,8 +270,9 @@ inline V0Collection findV0s(
       TVector3 d = x - pv;
       double dis = d.Mag();
 
-      TVector3 p1, p2;
-      pairMomenta(v, p1, p2);
+      // momenta at the fitted vertex, already rescaled to the true GeV scale
+      const TVector3& p1 = v.updated_track_momentum_at_vertex[0];
+      const TVector3& p2 = v.updated_track_momentum_at_vertex[1];
       TVector3 p = p1 + p2;
       double pmag = p.Mag();
       double cp = (dis > 0. && pmag > 0.) ? d.Dot(p) / (dis * pmag) : -2.;
@@ -438,14 +433,9 @@ inline float pointSigTransverse(const TVector3& d, const TVector3& p,
   TVector3 u2 = ph.Cross(u1);
   double C[3][3];
   AlephTrkAux::sumCovPacked(cV, cR, C);
-  auto quad = [&](const TVector3& a, const TVector3& b) {
-    double s = 0.;
-    double av[3] = {a.X(), a.Y(), a.Z()}, bv[3] = {b.X(), b.Y(), b.Z()};
-    for (int i = 0; i < 3; ++i)
-      for (int j = 0; j < 3; ++j) s += av[i] * C[i][j] * bv[j];
-    return s;
-  };
-  double c11 = quad(u1, u1), c22 = quad(u2, u2), c12 = quad(u1, u2);
+  double c11 = AlephTrkAux::quadFormCov(u1, u1, C),
+         c22 = AlephTrkAux::quadFormCov(u2, u2, C),
+         c12 = AlephTrkAux::quadFormCov(u1, u2, C);
   double det = c11 * c22 - c12 * c12;
   if (det <= 0. || c11 <= 0. || c22 <= 0.) return -1.;
   double d1 = d.Dot(u1), d2 = d.Dot(u2);
@@ -459,9 +449,7 @@ inline RVec<float> candPointSig(const VertexingUtils::FCCAnalysesV0& v0s,
   TVector3 pv(PV.vertex.position[0], PV.vertex.position[1], PV.vertex.position[2]);
   for (const auto& v : v0s.vtx) {
     TVector3 x(v.vertex.position[0], v.vertex.position[1], v.vertex.position[2]);
-    TVector3 p(0., 0., 0.);
-    for (const auto& tp : v.updated_track_momentum_at_vertex) p += tp;
-    out.push_back(pointSigTransverse(x - pv, p, v.vertex.covMatrix,
+    out.push_back(pointSigTransverse(x - pv, candMomentum(v), v.vertex.covMatrix,
                                      PV.vertex.covMatrix));
   }
   return out;
@@ -519,14 +507,13 @@ inline RVec<int> candDaughterOrigIdx(const VertexingUtils::FCCAnalysesV0& v0s,
   return out;
 }
 
-// Measurement index of every original track index, or -1: the dE/dx join built
-// ONCE per collection per event, in place of a scan per requested track. A
-// track measured twice keeps the LAST measurement, as the particle-flow join
-// does. That entry is then -1 when it fails the shared validity gate (value ==
-// omega of the track = the failed-leg sentinel, or non-finite/non-positive
-// value or error), so value and error branches share one lookup; gate = false
-// accepts every linked measurement. Sized by the track count: callers index the
-// result by original Tracks index.
+// Measurement index of every original track index, or -1; built ONCE per
+// collection per event. A track measured twice keeps the LAST measurement, as
+// the particle-flow join does. The entry is -1 when it fails the shared
+// validity gate (value == omega of the track = the failed-leg sentinel, or a
+// non-finite/non-positive value or error), so the value and error branches
+// share one lookup; gate = false accepts every linked measurement. Sized by the
+// track count, so callers index the result by original Tracks index.
 inline RVec<int> dedxIndexByTrack(const RVec<float>& value,
                                   const RVec<float>& error,
                                   const RVec<int>& meas_track_idx,
@@ -576,28 +563,17 @@ inline RVec<float> trackQuantityByIndex(const RVec<int>& want,
 }
 
 // ---------------------------------------------------------------------------
-// Jet-relative and per-jet tagger inputs. Everything below is derived from the
-// stored candidates, the primary vertex and the jets: no candidate is re-fitted
-// and no new tuned value enters.
+// Jet-relative tagger inputs. Everything below is derived from the stored
+// candidates, the primary vertex and the jets: no candidate is re-fitted and no
+// new tuned value enters.
 // ---------------------------------------------------------------------------
 
-// Undefined value of the jet-relative float branches, and of the per-jet int
-// branches that carry a flag rather than a count.
+// Undefined value of the jet-relative float branches.
 constexpr float TAG_UNDEF = AlephTrkAux::kUndef;
-constexpr int TAG_UNDEF_INT = -1;
-
-// Summed daughter momentum at the fitted vertex [GeV] - the momentum the jet
-// assignment and every jet-relative quantity below use.
-inline TVector3 candMomentum(const VertexingUtils::FCCAnalysesVertex& v) {
-  TVector3 p(0., 0., 0.);
-  for (const auto& tp : v.updated_track_momentum_at_vertex) p += tp;
-  return p;
-}
 
 // Jet of every candidate, or -1 when it has none: closest dR between the
-// candidate momentum and the jet axis, the first jet winning a tie. Reproduces
-// the assignment that fills the per-jet mirror block (assign_V0s_to_jets in
-// analyzer.h: same zero-momentum guard and dR seed), so the two are joinable.
+// candidate momentum and the jet axis, the first jet winning a tie. Same rule
+// as assign_V0s_to_jets in analyzer.h (same zero-momentum guard and dR seed).
 inline RVec<int> candJetIdx(const VertexingUtils::FCCAnalysesV0& v0s,
                             const RVec<fastjet::PseudoJet>& jets) {
   RVec<int> out;
@@ -702,11 +678,8 @@ inline RVec<float> candFlightSig(const VertexingUtils::FCCAnalysesV0& v0s,
     const double L = d.Mag();
     if (!(L > 0.)) { out.push_back(TAG_UNDEF); continue; }
     AlephTrkAux::sumCovPacked(v.vertex.covMatrix, PV.vertex.covMatrix, C);
-    TVector3 u = d.Unit();
-    const double uv[3] = {u.X(), u.Y(), u.Z()};
-    double s2 = 0.;
-    for (int i = 0; i < 3; ++i)
-      for (int j = 0; j < 3; ++j) s2 += uv[i] * C[i][j] * uv[j];
+    const TVector3 u = d.Unit();
+    const double s2 = AlephTrkAux::quadFormCov(u, u, C);
     out.push_back((s2 > 0. && std::isfinite(s2)) ? float(L / std::sqrt(s2))
                                                  : TAG_UNDEF);
   }
@@ -784,117 +757,6 @@ inline RVec<int> candNShared(const RVec<int>& d1, const RVec<int>& d2) {
     if (d1[c] >= 0 && nUse[d1[c]] > 1) ++s;
     if (d2[c] >= 0 && nUse[d2[c]] > 1) ++s;
     out.push_back(s);
-  }
-  return out;
-}
-
-// Candidates of each jet passing one species/tier combination. want_pdg = 310
-// or 3122; want_baryon = +1/-1 to require that baryon sign, 0 = either;
-// want_tight = 1 restricts to the tight tier, 0 counts every stored candidate.
-inline RVec<int> jetCountV0(const RVec<int>& jetIdx,
-                            const RVec<fastjet::PseudoJet>& jets,
-                            const RVec<int>& pdg, const RVec<int>& tight,
-                            const RVec<int>& baryon, int want_pdg,
-                            int want_baryon, int want_tight) {
-  RVec<int> out(jets.size(), 0);
-  for (size_t c = 0; c < jetIdx.size(); ++c) {
-    const int j = jetIdx[c];
-    if (j < 0 || j >= (int)jets.size()) continue;
-    if (c >= pdg.size() || pdg[c] != want_pdg) continue;
-    if (want_tight && (c >= tight.size() || !tight[c])) continue;
-    if (want_baryon != 0 && (c >= baryon.size() || baryon[c] != want_baryon))
-      continue;
-    ++out[j];
-  }
-  return out;
-}
-
-// Candidate index of the leading (highest-momentum) candidate of each jet, -1
-// for a jet without candidates. Leading = rank 1 of candRankInJet.
-inline RVec<int> jetLeadIdx(const RVec<int>& jetIdx,
-                            const RVec<fastjet::PseudoJet>& jets,
-                            const RVec<int>& rank) {
-  RVec<int> out(jets.size(), -1);
-  for (size_t c = 0; c < jetIdx.size() && c < rank.size(); ++c) {
-    const int j = jetIdx[c];
-    if (j >= 0 && j < (int)jets.size() && rank[c] == 1) out[j] = (int)c;
-  }
-  return out;
-}
-
-// Per-candidate quantity of each jet's leading candidate, `fill` for a jet
-// without one; the default suits the code-valued branches, flags pass
-// TAG_UNDEF_INT.
-inline RVec<int> jetLeadInt(const RVec<int>& lead, const RVec<int>& values,
-                            int fill = 0) {
-  RVec<int> out;
-  for (int c : lead)
-    out.push_back((c >= 0 && c < (int)values.size()) ? values[c] : fill);
-  return out;
-}
-
-inline RVec<float> jetLeadFloat(const RVec<int>& lead,
-                                const RVec<float>& values, float fill) {
-  RVec<float> out;
-  for (int c : lead)
-    out.push_back((c >= 0 && c < (int)values.size()) ? values[c] : fill);
-  return out;
-}
-
-// Summed momentum fraction of the TIGHT candidates of each jet; 0 for a jet
-// with none. Undefined fractions are left out of the sum.
-inline RVec<float> jetSumZ(const RVec<int>& jetIdx,
-                           const RVec<fastjet::PseudoJet>& jets,
-                           const RVec<float>& z, const RVec<int>& tight) {
-  RVec<float> out(jets.size(), 0.f);
-  for (size_t c = 0; c < jetIdx.size() && c < z.size() && c < tight.size(); ++c) {
-    const int j = jetIdx[c];
-    if (j < 0 || j >= (int)jets.size() || !tight[c] || z[c] < 0.f) continue;
-    out[j] += z[c];
-  }
-  return out;
-}
-
-// Distinct original tracks claimed by the TIGHT candidates of each jet.
-inline RVec<int> jetNTrkClaimed(const RVec<int>& jetIdx,
-                                const RVec<fastjet::PseudoJet>& jets,
-                                const RVec<int>& tight, const RVec<int>& d1,
-                                const RVec<int>& d2) {
-  RVec<int> out(jets.size(), 0);
-  std::vector<std::set<int>> claimed(jets.size());
-  for (size_t c = 0; c < jetIdx.size(); ++c) {
-    const int j = jetIdx[c];
-    if (j < 0 || j >= (int)jets.size()) continue;
-    if (c >= tight.size() || !tight[c]) continue;
-    if (c < d1.size() && d1[c] >= 0) claimed[j].insert(d1[c]);
-    if (c < d2.size() && d2[c] >= 0) claimed[j].insert(d2[c]);
-  }
-  for (size_t j = 0; j < jets.size(); ++j) out[j] = (int)claimed[j].size();
-  return out;
-}
-
-// Per-candidate quantity regrouped per jet, in the order the per-jet mirror
-// block is filled (candidate order within each jet), so the two are joinable.
-inline RVec<RVec<int>> jetGatherInt(const RVec<int>& jetIdx,
-                                    const RVec<fastjet::PseudoJet>& jets,
-                                    const RVec<int>& values) {
-  RVec<RVec<int>> out(jets.size());
-  for (size_t c = 0; c < jetIdx.size(); ++c) {
-    const int j = jetIdx[c];
-    if (j < 0 || j >= (int)jets.size()) continue;
-    out[j].push_back((c < values.size()) ? values[c] : -1);
-  }
-  return out;
-}
-
-// The candidate indices themselves, in the same per-jet order: the join key
-// from the per-jet mirror block back to the event-level candidate list.
-inline RVec<RVec<int>> jetGatherIdx(const RVec<int>& jetIdx,
-                                    const RVec<fastjet::PseudoJet>& jets) {
-  RVec<RVec<int>> out(jets.size());
-  for (size_t c = 0; c < jetIdx.size(); ++c) {
-    const int j = jetIdx[c];
-    if (j >= 0 && j < (int)jets.size()) out[j].push_back((int)c);
   }
   return out;
 }

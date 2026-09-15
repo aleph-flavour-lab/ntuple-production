@@ -1,9 +1,8 @@
 #ifndef ALEPH_RECO_CONFIG_H
 #define ALEPH_RECO_CONFIG_H
-// Primary-vertex reconstruction constants shared by stage1.py and the
-// standalone examples: the single source of the values the Define strings hand
-// to the track selection and the vertex fitter. Dependency-free; lengths in cm
-// unless the name says otherwise (conventions and the solenoid field: aleph_units.h).
+// Primary-vertex reconstruction constants shared by stage1.py and the standalone
+// examples. Dependency-free; lengths in cm unless the name says otherwise
+// (solenoid field and track conventions: aleph_units.h).
 namespace FCCAnalyses {
 namespace AlephReco {
 // impact-parameter preselection of the primary-vertex candidate tracks
@@ -14,10 +13,9 @@ constexpr double kPVTrackZ0Max = 2.0;    // |z0| [cm]
 constexpr double kBeamSigmaX_um = 200.;
 constexpr double kBeamSigmaY_um = 100.;
 constexpr double kBeamSigmaZ_cm = 2.;
-// VertexFitter_Tk expects the widths in um and scales them by 1e-3 to reach
-// mm; the track states here are in cm, so the unit of its arguments is 10 um
-// (get_PrimaryTracks reaches the same unit through 1e-6 on the widths and
-// 1e-3 on the track parameters).
+// VertexFitter_Tk scales these widths from um to mm by 1e-3, but the track
+// states here are in cm, so its argument unit is 10 um (get_PrimaryTracks
+// reaches the same unit via 1e-6 on the widths and 1e-3 on the parameters).
 constexpr double kBeamSigmaXFit = kBeamSigmaX_um / 10.;
 constexpr double kBeamSigmaYFit = kBeamSigmaY_um / 10.;
 constexpr double kBeamSigmaZFit = kBeamSigmaZ_cm * 1e4 / 10.;

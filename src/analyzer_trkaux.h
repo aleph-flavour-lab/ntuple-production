@@ -72,6 +72,25 @@ inline void sumCovPacked(const CovA& ca, const CovB& cb, double C[3][3]) {
   C[2][2] = double(ca[5]) + cb[5];
 }
 
+// Summed daughter momentum of a fitted vertex [GeV]: the candidate momentum
+// every mass, pointing, flight and jet-relative quantity is built from.
+inline TVector3 candMomentum(const VertexingUtils::FCCAnalysesVertex& v) {
+  TVector3 p(0., 0., 0.);
+  for (const auto& tp : v.updated_track_momentum_at_vertex) p += tp;
+  return p;
+}
+
+// Quadratic form a^T C b of a summed position covariance (sumCovPacked output);
+// a == b is the variance projected on that direction.
+inline double quadFormCov(const TVector3& a, const TVector3& b,
+                          const double C[3][3]) {
+  const double av[3] = {a.X(), a.Y(), a.Z()}, bv[3] = {b.X(), b.Y(), b.Z()};
+  double s = 0.;
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j) s += av[i] * C[i][j] * bv[j];
+  return s;
+}
+
 // ---------------------------------------------------------------------------
 // Particle-flow join: original track index -> ReconstructedParticle -> PF type.
 // ---------------------------------------------------------------------------
@@ -140,10 +159,10 @@ inline RVec<int> subdetHits(const RVec<int>& orig_idx,
 }  // namespace AlephTrkAux
 
 // ---------------------------------------------------------------------------
-// Legacy V0 finder configuration: the ONE source of the windows handed to the
-// compiled finder and of the replica that recovers its pair indices. Masses in
-// GeV, displacements in cm. The loose tier is the wide-open ML/booking tier;
-// its gamma upper mass is negative, so a conversion is never booked.
+// Legacy V0 finder configuration: the one source of the windows get_V0s_ALEPH
+// hands to the compiled finder. Masses in GeV, displacements in cm. The loose
+// tier is the wide-open booking tier; its gamma upper mass is negative, so a
+// conversion is never booked.
 // ---------------------------------------------------------------------------
 namespace AlephLegacyV0 {
 

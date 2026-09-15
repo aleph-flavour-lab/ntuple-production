@@ -55,20 +55,20 @@ The −9 sentinel of `pfcand_d0`/`pfcand_z0` lies inside the physical range of t
 
 ### Reconstruction modules: defaults and opt-outs
 
-A flag-less `stage1.py` runs the two-tier V0 module ([`analyzer_v0new.h`](analyzer_v0new.h)) on top of the standard chain, writing the `v0n_*`/`v0njet_*` branches. On MC the truth-matching branches (`truev0_*`, `v0c_*`, `v0n_class`, ...) are added automatically; they are skipped under `--doData`.
+A flag-less `stage1.py` runs the two-tier V0 module ([`analyzer_v0new.h`](analyzer_v0new.h)) on top of the standard chain, writing the `v0n_*` branches. The module writes no generator-level information, so the output schema is the same on MC and on data.
 
 The legacy code path remains available as an opt-out:
 
 | flag | meaning |
 | --- | --- |
-| `--oldV0` | drop the two-tier V0 module: no `v0n_*`/`v0njet_*` and no V0 truth branches. The legacy `v0_*` block is unaffected. |
-| `--noV0TagVars` | drop the jet-relative tagger inputs of the module (the `v0n_jetIdx`/`z`/`zL`/... block, the per-daughter `q`/`p`/`nTPC` branches and the `v0njet_*` aggregates listed below). The rest of the module is unaffected; `--oldV0` drops them too. |
+| `--oldV0` | drop the two-tier V0 module: no `v0n_*` branches. The legacy `v0_*` block is unaffected. |
+| `--noV0TagVars` | drop the jet-relative tagger inputs of the module (the `v0n_jetIdx`/`z`/`zL`/... block and the per-daughter `q`/`p`/`nTPC` branches). The rest of the module is unaffected; `--oldV0` drops them too. |
 
-The selection is not configurable from the command line: every tuned value is a named constant in the header that uses it, defined once. The paragraphs below describe the selection in words; the numbers quoted are those declarations.
+The selection itself is not configurable from the command line: every tuned value is a named constant in the header that uses it, declared once. The paragraphs below describe it in words.
 
 ### The two-tier V0 module
 
-Standalone V0 (Ks/Λ) reconstruction in [`analyzer_v0new.h`](analyzer_v0new.h). It runs on the primary vertex of the standard chain (`VertexObject_looseBS`) and on the secondary tracks that vertex leaves unclaimed (`SecondaryTracks_looseBS`). It is *V0-first* by design: its track claims are meant to be consumed by later finders, so the module optimises the correctness of each claim, not just the candidate list.
+Standalone V0 (Ks/Λ) reconstruction in [`analyzer_v0new.h`](analyzer_v0new.h). It runs on the primary vertex of the standard chain (`VertexObject_looseBS`) and on the secondary tracks that vertex leaves unclaimed (`SecondaryTracks_looseBS`). It is *V0-first*: its track claims are meant to be consumed by later finders, so it optimises the correctness of each claim rather than only the candidate list.
 
 **Candidate building.** All opposite-charge secondary track pairs are vertexed with a single consistent fit (`VertexFitter_Tk`); every downstream quantity (momenta, invariant masses under both hypotheses, Armenteros–Podolanski (AP) variables, pointing) is derived from the refitted momenta at that vertex — there is no second fit.
 
@@ -81,26 +81,21 @@ Standalone V0 (Ks/Λ) reconstruction in [`analyzer_v0new.h`](analyzer_v0new.h). 
 
 **Exclusive claiming, tight first.** Candidates claim their tracks exclusively in quality order: all tight candidates claim before any loose one, and within a tier the best-χ² candidate claims first. A track is claimed once; later candidates using it are dropped. This preserves the tight-only output exactly regardless of the loose tier.
 
-**Stored flags and ML inputs.** `v0n_tight` is the tier the finder booked the candidate in (booking a candidate ≠ selecting it — the loose tier is stored with the flag off). The tight tier and the two hypotheses are also available as collections of their own inside stage1 (`V0sNewTight_event`, `Ks_event`, `Lambda_event`, copies of the same fitted candidates). Any tighter selection is re-derivable offline from the stored loose tier. `v0n_bandSig` and `v0n_massSig` store the AP-band and mass cut variables as signed pulls in resolution units for training; all other cut variables (cosPointing, pointSig, qT, χ², displacement, p, invM) are stored raw.
+**Stored flags and ML inputs.** `v0n_tight` is the tier the finder booked the candidate in (booking a candidate ≠ selecting it — the loose tier is stored with the flag off). The tight tier and the two hypotheses can be taken as collections of their own with the header's `tightV0s` / `getKs` / `getLambda` (copies of the same fitted candidates; `Kspipi_example.py` shows the chain). `v0n_bandSig` and `v0n_massSig` store the AP-band and mass cut variables as signed pulls in resolution units for training; all other cut variables (cosPointing, pointSig, qT, χ², displacement, p, invM) are stored raw.
 
-**Output branches.** Two groups, both written by default and both dropped by `--oldV0`:
-
-- `n_v0n_event`, `v0n_pdg`, `v0n_invM`, `v0n_alpha`, `v0n_qt`, `v0n_chi2`, `v0n_dxyz`, `v0n_p`, `v0n_px/py/pz`, `v0n_cosPointing`, `v0n_pointSig`, `v0n_tight`, `v0n_bandSig`, `v0n_massSig`, `v0n_vx/vy/vz`, the vertex-fit covariance `v0n_cov_*`, the daughter joins `v0n_trk1_origIdx`/`v0n_trk2_origIdx` and their `v0n_trk{1,2}_dEdx_{pads,wires}_{value,error}` and `v0n_trk{1,2}_isChargedHad` — event-order candidate quantities, independent of jet assignment.
-- `n_v0njet_jets`, `n_v0njet_ks`, `n_v0njet_lambda` and `v0njet_*` — the new candidates pushed through the same per-jet assignment and jet-relative getters as the existing `v0_*` block. The per-jet layout and the candidate lists are therefore directly comparable between old and new, but the momenta of each block come from that finder’s own vertex fit — the legacy one from a second, rescaled fit — so the momentum-derived branches (`p`, `prel`, `thetarel`, `phirel`, `cosPointing`, `correctedMass`) are not the same estimator and a difference between them is not by itself a difference in finding.
+**Output branches.** One block, written by default and dropped by `--oldV0`: `n_v0n_event`, `v0n_pdg`, `v0n_invM`, `v0n_alpha`, `v0n_qt`, `v0n_chi2`, `v0n_dxyz`, `v0n_px/py/pz`, `v0n_cosPointing`, `v0n_pointSig`, `v0n_tight`, `v0n_bandSig`, `v0n_massSig`, `v0n_vx/vy/vz`, the vertex-fit covariance `v0n_cov_*`, the daughter joins `v0n_trk1_origIdx`/`v0n_trk2_origIdx` and their `v0n_trk{1,2}_dEdx_{pads,wires}_{value,error}` and `v0n_trk{1,2}_isChargedHad` — event-order candidate quantities, independent of jet assignment. The candidate momentum magnitude is not written: it is \|(`v0n_px`, `v0n_py`, `v0n_pz`)\|.
 
 The two daughter legs `v0n_trk1_*` / `v0n_trk2_*` are in momentum order, `v0n_trk1_*` the higher-momentum daughter at the fitted vertex, *not* in charge order.
 
-`v0n_alpha` (and the truth-block `v0c_alpha`) follows the physical charge — the positive track is taken first, so α = (p∥⁺ − p∥⁻)/(p∥⁺ + p∥⁻), and α > 0 means Λ rather than Λ̄.
+`v0n_alpha` follows the physical charge — the positive track is taken first, so α = (p∥⁺ − p∥⁻)/(p∥⁺ + p∥⁻), and α > 0 means Λ rather than Λ̄.
 
 A daughter leg whose dE/dx measurement is missing or fails the validity gate reads −1 in both `v0n_trk{1,2}_dEdx_{pads,wires}_value` and `..._error`, not the −9 of the `pfcand_dEdx_*` block. `--noDedxGate` switches the gate off for both blocks alike.
 
-The truth-matching branches (`v0n_class`, `v0n_trueidx`, `truev0_foundnew_*`, `truev0_*`, `v0c_*`) are MC only — they are skipped under `--doData`. The module claims tracks exclusively, so the pair-multiplicity and track-sharing counters of the legacy block have no counterpart here; the daughters of a candidate are `v0n_trk{1,2}_origIdx`.
-
 ### Jet-relative V0 tagger inputs
 
-A third group of branches, written by default and dropped by `--noV0TagVars` (and by `--oldV0`), presents each candidate as the jet sees it. They are derived from the stored candidates, the primary vertex `VertexObject_looseBS` and the jet collection — no candidate is re-fitted and no tuned value enters. Every candidate is assigned to the jet with the smallest ΔR between its momentum and the jet axis, the first jet winning a tie; a candidate with a vanishing momentum is left unassigned. This is the same assignment that fills the `v0njet_*` mirror, so the two blocks are joinable.
+A second block of branches, written by default and dropped by `--noV0TagVars` (and by `--oldV0`), presents each candidate as the jet sees it. They are derived from the stored candidates, the primary vertex `VertexObject_looseBS` and the jet collection — no candidate is re-fitted and no tuned value enters. Every candidate is assigned to the jet with the smallest ΔR between its momentum and the jet axis, the first jet winning a tie; a candidate with a vanishing momentum is left unassigned. It is the same rule the legacy `v0_*` block is assigned by.
 
-Momentum fractions are normalised to the energy of the assigned jet, taken from the same jet collection the `v0njet_*` mirror uses. All new float branches use −1 as the undefined value; the reliable "no jet" test is `v0n_jetIdx == -1`.
+Momentum fractions are normalised to the energy of the assigned jet, taken from the jet collection the clustering produced. Every float branch of this block uses −1 as the undefined value; the reliable "no jet" test is `v0n_jetIdx == -1`.
 
 Per candidate, in the order of `v0n_pdg`:
 
@@ -121,32 +116,17 @@ Per candidate, in the order of `v0n_pdg`:
 | `v0n_trk{1,2}_p` | daughter momentum magnitude at the fitted vertex | GeV | −1 |
 | `v0n_trk{1,2}_nTPC` | TPC hits of the daughter's original track, from the same per-track block as `pfcand_nTrackHits_TPC` | — | −1 |
 
-The `v0n_trk{1,2}_*` legs of both groups follow the momentum order stated above; `v0n_trk1_q` is the tagger-input branch that gives the sign of the leg (absent under `--noV0TagVars`, when `v0n_trk{1,2}_origIdx` still identifies the track).
+The `v0n_trk{1,2}_*` legs of this group follow the same momentum order. `v0n_trk{1,2}_q` is the only branch giving the sign of a leg, so under `--noV0TagVars` a leg is identified by `v0n_trk{1,2}_origIdx` alone.
 
-`v0n_Lxy`, `v0n_LxySig`, `v0n_LxyzSig` and `v0n_dxyz` (and the truth-block `v0c_dxyz`) are −1 when the primary vertex has fewer than 2 tracks: that vertex is the default one at the origin, so there is no flight to measure. The pointing branches (`v0n_cosPointing`, `v0n_pointSig`) and the per-jet mirrors (`v0njet_dxyz`, `v0_dxyz`) keep measuring from that default vertex.
+`v0n_Lxy`, `v0n_LxySig`, `v0n_LxyzSig` and `v0n_dxyz` are −1 when the primary vertex has fewer than 2 tracks: that vertex is the default one at the origin, so there is no flight to measure. The pointing branches (`v0n_cosPointing`, `v0n_pointSig`) and the legacy `v0_dxyz` keep measuring from that default vertex.
 
 [`Kspipi_example.py`](Kspipi_example.py) is a standalone fccanalysis script with the structure of `stage1.py` (own `class Analysis`, nothing imported from stage1) that carries only the reconstruction the tight-Kₛ block needs: event filter, track selection, beam-spot-constrained primary vertex, secondary tracks and their `sec2origIdx` map, the wires dE/dx join, on MC the track → generator links, then `findV0s` → `tightV0s` → `getKs` / `getLambda`. It writes `event_number`, `run_number` and a flat `ks_*` block (`n_ks`, `ks_invM`, `ks_p`, per leg `ks_trk{1,2}_{origIdx,q,p,dEdx_wires_value,dEdx_wires_error}` via `candDaughterOrigIdx` / `candDaughterCharge` / `candDaughterP` / `trackQuantityByIndex`, and on MC `ks_trk{1,2}_truePdg` via `AlephTruth::trackTruePdg`, the PDG code of the generator particle linked to the daughter track). Run it from `src/` with `fccanalysis run Kspipi_example.py -i <edm4hep.root> -o <out.root> [-- --doData]`; its `ks_*` entries equal the `v0n_*` entries of stage1 at `v0n_pdg == 310 && v0n_tight == 1`.
 
-Per jet, one entry per jet like `n_v0njet_ks` (except the last two, which are nested per candidate like the rest of the `v0njet_*` block):
+**Further utilities in the headers.** [`analyzer_truth.h`](analyzer_truth.h) holds the truth-free secondary-track index recovery `secondaryToOriginalTrack`, the event-order candidate accessors (`candChi2`, `candDxyz`, `candP`, `candPcomp`, `candCosPointing`, `candVtxPos`) and the track→MC link map and per-track generator PDG lookup that `Kspipi_example.py` uses. [`analyzer_trkaux.h`](analyzer_trkaux.h) holds the shared vertex-fit glue, the track→`ReconstructedParticle` join behind the per-leg particle-flow label and the per-track subdetector hit-count lookup. Both are loaded unconditionally: everything stage1 takes from them is truth-free and runs on data.
 
-| branch | definition | unit | empty jet |
-| --- | --- | --- | --- |
-| `v0njet_nKs_tight`, `v0njet_nLam_tight`, `v0njet_nLambar_tight` | tight candidates of the jet per hypothesis and baryon sign | — | 0 |
-| `v0njet_nKs_loose`, `v0njet_nLam_loose` | all stored candidates of the jet per hypothesis (`nLam_loose` counts both baryon signs) | — | 0 |
-| `v0njet_leadZ` | `v0n_z` of the jet's leading (highest-momentum) candidate | — | −1 |
-| `v0njet_leadPdg` | `v0n_pdg` of that candidate | — | 0 |
-| `v0njet_leadTight` | `v0n_tight` of that candidate | — | −1 |
-| `v0njet_leadBaryon` | `v0n_baryon` of that candidate | — | 0 |
-| `v0njet_sumZ_tight` | summed `v0n_z` of the jet's tight candidates | — | 0 |
-| `v0njet_nTrkClaimed` | distinct original tracks claimed by the jet's tight candidates | — | 0 |
-| `v0njet_tight` | `v0n_tight` of each of the jet's candidates, in the order of the `v0njet_*` block | — | empty |
-| `v0njet_evtIdx` | position of each of those candidates in the event-level `v0n_*` list — the key that joins the two blocks | — | empty |
+### Index map and per-leg labels
 
-**Further utilities in the headers.** [`analyzer_truth.h`](analyzer_truth.h) carries the MC truth-matching utilities (true-V0 finding, track↔MC index recovery, candidate truth classification) used to derive the tunings above; it is loaded unconditionally, because its truth-FREE candidate accessors (`candChi2`, `candDxyz`, `candP`, `candPcomp`, `candCosPointing`, `candVtxPos`) and index maps are also used on data. [`analyzer_trkaux.h`](analyzer_trkaux.h) holds the shared vertex-fit glue, the track→`ReconstructedParticle` join behind the per-leg particle-flow label and the per-track subdetector hit-count lookup; it is loaded unconditionally as well.
-
-### Index maps and per-leg labels
-
-`prim2origIdx` and `sec2origIdx` map the primary and secondary track collections back to the original `Tracks` index space, which is the frame the `v0n_trk{1,2}_origIdx` branches use; both are written on data too, since the matching is truth-free. Every candidate leg additionally carries `<leg>_isChargedHad`, a tri-state particle-flow label: 1 = the leg's linked reconstructed particle is a PF charged hadron, 0 = it is an electron, muon or another type, −1 = the track has no linked reconstructed particle (mostly very soft tracks, below the PF momentum reach). The label uses the same particle-flow type codes as `pfcand_isChargedHad`.
+Internally, `sec2origIdx` maps the secondary track collection back to the original `Tracks` index space, which is the frame the `v0n_trk{1,2}_origIdx` branches use; the matching is truth-free, so it runs on data too. The map itself is not an output branch. Every candidate leg additionally carries `<leg>_isChargedHad`, a tri-state particle-flow label: 1 = the leg's linked reconstructed particle is a PF charged hadron, 0 = it is an electron, muon or another type, −1 = the track has no linked reconstructed particle (mostly very soft tracks, below the PF momentum reach). The label uses the same particle-flow type codes as `pfcand_isChargedHad`.
 
 ### Run on batch:
 ```

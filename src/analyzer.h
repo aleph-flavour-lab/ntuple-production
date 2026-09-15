@@ -274,7 +274,7 @@ struct SelectedTracks {
   ROOT::VecOps::RVec<edm4hep::TrackData>  tracks;
   ROOT::VecOps::RVec<edm4hep::TrackState> trackStates;
   // index of each kept entry in the ORIGINAL Tracks collection, same order as
-  // trackStates; the single source of the selected -> original index map
+  // tracks/trackStates
   ROOT::VecOps::RVec<int>                 origIdx;
 };
 
