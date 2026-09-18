@@ -112,7 +112,8 @@ class Analysis():
         # beam-spot-constrained fit; the widths are handed over in the fitter's
         # 10 um unit (see aleph_reco_config.h). Fewer than 2 candidate tracks =
         # no primary vertex: no primary tracks, the fit below then returns the
-        # default vertex at the beam spot.
+        # default vertex at the origin (it does not fit fewer than two tracks
+        # and does not apply the beam-spot constraint).
         df = df.Define("RecoedPrimaryTracks_looseBS",
                        "trackstates_selected_for_vertexfit_flipped.size() < 2 ? ROOT::VecOps::RVec<edm4hep::TrackState>{} : "
                        "VertexFitterSimple::get_PrimaryTracks(trackstates_selected_for_vertexfit_flipped, true, "

@@ -85,6 +85,28 @@ Standalone V0 (Ks/Λ) reconstruction in [`analyzer_v0new.h`](analyzer_v0new.h). 
 
 **Output branches.** One block, written by default and dropped by `--oldV0`: `n_v0n_event`, `v0n_pdg`, `v0n_invM`, `v0n_alpha`, `v0n_qt`, `v0n_chi2`, `v0n_dxyz`, `v0n_px/py/pz`, `v0n_cosPointing`, `v0n_pointSig`, `v0n_tight`, `v0n_bandSig`, `v0n_massSig`, `v0n_vx/vy/vz`, the vertex-fit covariance `v0n_cov_*`, the daughter joins `v0n_trk1_origIdx`/`v0n_trk2_origIdx` and their `v0n_trk{1,2}_dEdx_{pads,wires}_{value,error}` and `v0n_trk{1,2}_isChargedHad` — event-order candidate quantities, independent of jet assignment. The candidate momentum magnitude is not written: it is \|(`v0n_px`, `v0n_py`, `v0n_pz`)\|.
 
+Per candidate, in the order of `v0n_pdg`:
+
+| branch | definition | unit | undefined |
+| --- | --- | --- | --- |
+| `v0n_pdg` | \|PDG\| of the booked hypothesis, 310 (Ks) or 3122 (Λ or Λ̄; the sign is in `v0n_alpha` / `v0n_baryon`) | — | — |
+| `v0n_invM` | invariant mass under the booked hypothesis, from the refitted momenta | GeV | — |
+| `v0n_alpha` | Armenteros–Podolanski α, positive track first (see below) | — | −99 |
+| `v0n_qt` | Armenteros–Podolanski qT, daughter momentum transverse to the candidate momentum | GeV | 0 for a vanishing candidate momentum |
+| `v0n_chi2` | vertex-fit χ² per degree of freedom (one degree of freedom for a two-track vertex) | — | — |
+| `v0n_dxyz` | 3D flight length of the candidate vertex from the primary vertex | cm | −1 (primary vertex with fewer than 2 tracks) |
+| `v0n_px/py/pz` | summed daughter momentum at the fitted vertex | GeV | — |
+| `v0n_cosPointing` | cosine between the flight direction from the primary vertex and the candidate momentum | — | −2 (zero flight length or momentum) |
+| `v0n_pointSig` | transverse pointing significance: the candidate-to-primary-vertex vector projected on the plane transverse to the candidate momentum, in units of the summed candidate and primary position covariances (√(dᵀC⁻¹d) in that plane) | — | −1 (degenerate geometry or singular covariance) |
+| `v0n_tight` | 1 = booked in the tight tier, 0 = loose tier | — | — |
+| `v0n_bandSig` | signed AP-band pull of the booked hypothesis, (bandEll − 1)/σ_ell(p) | — | −999 |
+| `v0n_massSig` | signed mass pull of the booked hypothesis, (invM − m_hyp)/σ_m(p) | — | −999 |
+| `v0n_vx/vy/vz` | fitted vertex position | cm | — |
+| `v0n_cov_{xx,yx,yy,zx,zy,zz}` | vertex-fit position covariance, packed lower triangle | cm² | — |
+| `v0n_trk{1,2}_origIdx` | index of the daughter in the `Tracks` collection | — | −1 |
+| `v0n_trk{1,2}_dEdx_{pads,wires}_{value,error}` | daughter dE/dx measurement after the validity gate | as `pfcand_dEdx_*` | −1 |
+| `v0n_trk{1,2}_isChargedHad` | tri-state particle-flow label of the daughter (see below) | — | −1 (no linked reconstructed particle) |
+
 The two daughter legs `v0n_trk1_*` / `v0n_trk2_*` are in momentum order, `v0n_trk1_*` the higher-momentum daughter at the fitted vertex, *not* in charge order.
 
 `v0n_alpha` follows the physical charge — the positive track is taken first, so α = (p∥⁺ − p∥⁻)/(p∥⁺ + p∥⁻), and α > 0 means Λ rather than Λ̄.

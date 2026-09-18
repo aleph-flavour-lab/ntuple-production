@@ -369,7 +369,7 @@ class Analysis():
             df = df.Define("Beamspot_z", "0.0")
 
         # Guard: with fewer than 2 IP-preselected tracks there is no meaningful primary vertex,
-        # so return NO primary tracks (the PV fit then falls back to the dummy beamspot vertex).
+        # so return NO primary tracks (the PV fit then returns the default vertex at the origin).
         # FCCAnalyses' get_PrimaryTracks instead returns `seltracks` unchanged, i.e. the single
         # track - that is what the reference wrapper (getPrimaryTracks in analyzer_pvtools.cxx,
         # `if(tracksToUse.size() < 2){ return primaryTracks; }`) guards against. Without this we
