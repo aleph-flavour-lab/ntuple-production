@@ -251,7 +251,7 @@ enum TrkMemberBit : int {
   kTrkD0        = 1 << 5,  // leg of a reconstructed D0 -> K pi candidate
   kTrkDstar     = 1 << 6,  // leg of any stored D* candidate, slow pion included
   kTrkDstarTight= 1 << 7,  // leg of a D* candidate passing the tight flag
-  kTrkSV        = 1 << 8,  // track of a secondary vertex (set when an SV finder runs)
+  kTrkSV        = 1 << 8,  // constituent track of a secondary vertex
   kTrkBaseline  = 1 << 9   // baseline-selected track
 };
 
@@ -280,13 +280,22 @@ inline void countLegs(RVec<int>& n, const RVec<int>& idx) {
 
 }  // namespace detail
 
-// Index lists are in the original Tracks frame, except sv_trk_idx (secondary).
+// Constituent track indices of every secondary vertex.
+inline RVec<int> svTrackIdx(const RVec<VertexingUtils::FCCAnalysesVertex>& svs) {
+  RVec<int> out;
+  for (const auto& v : svs)
+    for (int i : v.reco_ind) out.push_back(i);
+  return out;
+}
+
+// Index lists are in the original Tracks frame, except sv_trk_idx, which
+// sv2orig maps there.
 // A finder that did not run passes empty lists.
 inline TrackTags trackTags(size_t nTracks,
                            const RVec<int>& baseline_orig,
                            const RVec<int>& prim_orig,
                            const RVec<int>& sv_trk_idx,
-                           const RVec<int>& sec2orig,
+                           const RVec<int>& sv2orig,
                            const RVec<int>& v0_d1, const RVec<int>& v0_d2,
                            const RVec<int>& v0_tight,
                            const RVec<int>& phi_t1, const RVec<int>& phi_t2,
@@ -301,8 +310,8 @@ inline TrackTags trackTags(size_t nTracks,
   detail::tagBit(out.member, baseline_orig, kTrkBaseline);
   detail::tagBit(out.member, prim_orig, kTrkPV);
   for (int s : sv_trk_idx)
-    if (s >= 0 && s < (int)sec2orig.size()) {
-      const int o = sec2orig[s];
+    if (s >= 0 && s < (int)sv2orig.size()) {
+      const int o = sv2orig[s];
       if (o >= 0 && o < (int)nTracks) out.member[o] |= kTrkSV;
     }
 

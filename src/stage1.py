@@ -653,8 +653,8 @@ class Analysis():
         ############################################# per-track membership ####################################################
         # one pass over the finished candidate lists, per original track
         _EMPTY = "ROOT::VecOps::RVec<int>{}"
-        # no secondary-vertex finder in this tree, so the kTrkSV bit stays 0
-        _sv = _EMPTY
+        # SV constituents come back in the baseline-selected frame the finder was given
+        df = df.Define("svTrkIdx", "FCCAnalyses::AlephTrkAux::svTrackIdx(SVs_looseBS)")
         _v0 = ("v0n_trk1_origIdx, v0n_trk2_origIdx, v0n_tight" if self.do_v0new
                else f"{_EMPTY}, {_EMPTY}, {_EMPTY}")
         _phi = ("phikk_trk1_origIdx, phikk_trk2_origIdx, phikk_wp" if self.do_phikk
@@ -664,7 +664,7 @@ class Analysis():
                if self.do_dstar else ", ".join([_EMPTY] * 6))
         df = df.Define("trkTags",
                        "FCCAnalyses::AlephTrkAux::trackTags(Tracks.size(), "
-                       f"selBaselineOrigIdx, prim2origIdx, {_sv}, sec2origIdx, "
+                       "selBaselineOrigIdx, prim2origIdx, svTrkIdx, selBaselineOrigIdx, "
                        f"{_v0}, {_phi}, {_ds})")
         df = df.Define("trk_member", "trkTags.member")
         df = df.Define("trk_nCand",  "trkTags.nCand")
