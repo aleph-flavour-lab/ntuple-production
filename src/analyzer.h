@@ -353,9 +353,7 @@ select_tracks_impactparameters(const SelectedTracks& input,
 }
 
 
-// Same pre-selection with |D0|, |Z0| re-referenced to the beamspot b [cm]
-// instead of the origin. The raw ALEPH/FRFT d0 sign convention is opposite to
-// EDM4HEP, hence the +n.b sign. The stored track states are unchanged.
+// same window, |D0| and |Z0| referenced to the beamspot b [cm]; raw d0 sign is opposite to EDM4HEP
 SelectedTracks
 select_tracks_impactparameters_bs(const SelectedTracks& input,
                                   float d0_upper_bound,
