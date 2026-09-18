@@ -8,8 +8,9 @@
   Units: cm / rad / 1/cm. Inputs are ALEPH-flipped, cm-native edm4hep track
   states.
 
-  Every result carries an explicit `converged` flag; a non-converged fit is
-  never returned as a vertex.
+  Every result carries an explicit `converged` flag. The position is filled
+  whether or not the fit converged (the covariance is zeroed if it did not);
+  callers must test `converged`, or `goodPV()`, before using it as a vertex.
 */
 
 #include <algorithm>
