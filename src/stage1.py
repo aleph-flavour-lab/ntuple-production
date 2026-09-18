@@ -54,7 +54,7 @@ class Analysis():
             print(f"----> WARNING: unrecognised arguments ignored: {' '.join(unknown)}")
         if not self.ana_args.doData and (self.ana_args.excludeRuns or self.ana_args.noRunList):
             print("----> ERROR: --excludeRuns and --noRunList apply to data only (--doData); Monte Carlo has no run list.")
-            exit()
+            sys.exit(1)
 
         #Dictionary for setting output names:
         outnames_dict = {
@@ -191,17 +191,18 @@ class Analysis():
             if not self.ana_args.noRunList:
                 if not run_list.has_list(self.ana_args.year):
                     print(f"----> ERROR: no run list for year {self.ana_args.year} ({run_list.run_list_file(self.ana_args.year)}); pass --noRunList to run without one.")
-                    exit()
+                    sys.exit(1)
                 kept = run_list.good_runs(self.ana_args.year) - excluded
                 if not kept:
                     print("----> ERROR: the run list minus --excludeRuns is empty.")
-                    exit()
+                    sys.exit(1)
                 print("----> " + run_list.summary(self.ana_args.year, exclude=excluded))
             print(f"----> run selection: {'all runs' if kept is None else f'{len(kept)} listed runs'}, {len(excluded)} excluded {sorted(excluded)}")
             if kept is not None:
                 import ROOT
                 if not hasattr(ROOT, "AlephRunList"):
                     ROOT.gInterpreter.Declare(
+                        "#include <unordered_set>\n"
                         "namespace AlephRunList { const std::unordered_set<int> kept{" + ",".join(str(r) for r in sorted(kept)) + "};"
                         " bool keep(int run) { return kept.count(run) > 0; } }")
                 df = df.Filter("EventHeader.runNumber.size() == 1 && AlephRunList::keep(EventHeader.runNumber[0])", "runList")

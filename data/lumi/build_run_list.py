@@ -31,7 +31,6 @@ import math
 import os
 import sqlite3
 import sys
-from datetime import date
 
 # Our own veto on top of the database flags, one group per criterion (evidence per run in
 # the pull request): vertexing = VDET off or the primary vertex otherwise unusable;
@@ -100,7 +99,8 @@ def main():
     if a.year not in REFERENCE_PERIOD:
         sys.exit(f"no lepton-pair reference period defined for {a.year} (REFERENCE_PERIOD)")
     d0, d1 = REFERENCE_PERIOD[a.year]
-    # truncated bookkeeping counters, checked for every run (used by the reference rate and the fill factors too)
+    # truncated bookkeeping counters of the runs with a stored luminosity (the others are valued
+    # from the files themselves); used by the verdict, the reference rate and the fill factors
     truncated = {r for r, x in rows.items()
                  if lumi_known(x) and cls(r, HADRONIC_CLASS) >= 50 and cls(r, HADRONIC_CLASS) > a.trunc * max(x["n_z0"] or 0, 1)}
     ref = [r for r, x in rows.items() if r not in veto and r not in truncated and x["run_quality"] == "PERF" and lumi_known(x) and x["run_date"] and d0 <= x["run_date"] <= d1]
@@ -152,7 +152,7 @@ def main():
         })
 
     header = [
-        f"# ALEPH {a.year} run list, built {date.today().isoformat()} by build_run_list.py",
+        f"# ALEPH {a.year} run list, built by build_run_list.py",
         f"# database: {os.path.basename(a.db)} (ALEPH run database, SQLite); event-class counts: {os.path.basename(a.classes)} (count_event_classes.py)",
         f"# selection: VDET, ITC, TPC = P and no subsystem D; our veto {len(veto)} runs; truncated counters: class16 / n_z0 > {a.trunc}",
         f"# lepton-pair monitor (class {LEPTON_PAIR_CLASS}): {rate15:.4f} per nb^-1 on {len(ref)} PERF runs {d0}..{d1}, {L_ref / 1e3:.2f} pb^-1 SICAL",

@@ -1,4 +1,4 @@
-# ALEPH 1994 run list, built 2026-09-18 by build_run_list.py
+# ALEPH 1994 run list, built by build_run_list.py
 # database: aleph.db (ALEPH run database, SQLite); event-class counts: class_counts_raw_1994.json (count_event_classes.py)
 # selection: VDET, ITC, TPC = P and no subsystem D; our veto 57 runs; truncated counters: class16 / n_z0 > 1.1
 # lepton-pair monitor (class 15): 6.1201 per nb^-1 on 1215 PERF runs 1994-07-01..1994-09-30, 28.27 pb^-1 SICAL
