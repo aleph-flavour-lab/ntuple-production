@@ -33,19 +33,10 @@ import sqlite3
 import sys
 from datetime import date
 
-# Our own run veto, applied on top of the database flags (1994).
-# vertexing: VDET off; 26097 also a +-9.5 cm z offset per TPC drift half; 27776 sigma(d0)
-#   doubled with ITC hit loss.
-# tracking_quality: mean barrel TPC hit count more than 4 sigma below the neighbouring runs of
-#   the same file, or the fraction of tracks with sigma(d0) < 100 um more than 4 sigma below it
-#   together with an ITC/VDET hit loss; 27518, 28941, 28990 re-checked per fill: TPC hits and
-#   track-class rates low, 28941 chi2/ndf ~21. 26378, 26390, 29227, 29312: raw-file comparison
-#   with the runs of the same fill, ITC hits per track 6-13 % low; 26390 also sigma(d0) +30 %,
-#   29312 also 49 % more events without a hadronic/lepton-pair class.
-# field: solenoid off-plateau, 1.5176 T (+1.2 %) from the magnet-current readback and the track
-#   curvature; compensation-coil currents at 0.4 % of their usual values.
-# dedx_calibration: no dE/dx calibration banks for the run (dQdx.type 4 on every track, pads and
-#   wires), so no dE/dx measurement at all; tracking normal.
+# Our own veto on top of the database flags, one group per criterion (evidence per run in
+# the pull request): vertexing = VDET off or the primary vertex otherwise unusable;
+# tracking_quality = hit content or sigma(d0) well below the runs of the same file or fill;
+# field = solenoid off its plateau; dedx_calibration = no dE/dx calibration banks at all.
 VETO_RUNS = {
     1994: {
         "vertexing": (
@@ -109,7 +100,7 @@ def main():
     if a.year not in REFERENCE_PERIOD:
         sys.exit(f"no lepton-pair reference period defined for {a.year} (REFERENCE_PERIOD)")
     d0, d1 = REFERENCE_PERIOD[a.year]
-    # truncated bookkeeping counters (checked for every run: it matters for the reference rate and the fill factors too)
+    # truncated bookkeeping counters, checked for every run (used by the reference rate and the fill factors too)
     truncated = {r for r, x in rows.items()
                  if lumi_known(x) and cls(r, HADRONIC_CLASS) >= 50 and cls(r, HADRONIC_CLASS) > a.trunc * max(x["n_z0"] or 0, 1)}
     ref = [r for r, x in rows.items() if r not in veto and r not in truncated and x["run_quality"] == "PERF" and lumi_known(x) and x["run_date"] and d0 <= x["run_date"] <= d1]
@@ -128,7 +119,7 @@ def main():
         else:
             reason[r] = "ok"
 
-    # fill factors from the lumi-known runs of each fill, whatever their detector flags (the
+    # fill factors from the lumi-known runs of each fill (detector flags do not matter: the
     # monitor tests the SICAL bookkeeping), without the vetoed and truncated runs
     fills = collections.defaultdict(lambda: {"L": 0.0, "c15": 0, "nb": 0})
     for r, x in rows.items():

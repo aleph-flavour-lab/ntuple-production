@@ -2,9 +2,8 @@
 import os
 import sys
 from argparse import ArgumentParser
-# fccanalysis loads this file by path, and its batch workers get neither the submitter's
-# PYTHONPATH nor the repository's setup.sh, so the shared modules of this directory are
-# made importable here rather than relying on the environment.
+# fccanalysis loads this file by path and its batch workers do not inherit PYTHONPATH,
+# so this directory's modules are made importable here.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import run_list
 
@@ -185,9 +184,8 @@ class Analysis():
         }
 
         if self.ana_args.doData:
-            # Run selection: keep the runs of the data/lumi list (minus --excludeRuns); with
-            # --noRunList only --excludeRuns is applied. The list is read on the node that builds
-            # the graph, so it has to be reachable there (see $ALEPH_RUN_LIST_<year> in run_list.py).
+            # Run selection from the data/lumi list minus --excludeRuns (--noRunList: every run).
+            # The list is read where the graph is built; $ALEPH_RUN_LIST_<year> overrides its path.
             excluded = set(self.ana_args.excludeRuns)
             kept = None
             if not self.ana_args.noRunList:
