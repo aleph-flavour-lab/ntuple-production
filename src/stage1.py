@@ -2,6 +2,9 @@
 import os
 import sys
 from argparse import ArgumentParser
+# fccanalysis loads this file by path, and its batch workers get neither the submitter's
+# PYTHONPATH nor the repository's setup.sh, so the shared modules of this directory are
+# made importable here rather than relying on the environment.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import run_list
 

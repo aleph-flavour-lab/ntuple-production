@@ -1,11 +1,8 @@
 # Default config for plotting from the stage 1 ntuples, grouping uds = light jets
 
-import os
-import sys
 import Zqq_plots 
 import Zqq_processes 
 import Zqq_selections
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 import run_list
 
 class PlottingConfig:

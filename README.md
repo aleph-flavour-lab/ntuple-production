@@ -15,7 +15,7 @@ cd ntuple-production
 git submodule update --init --recursive
 ```
 
-Set up the environment (sources the pinned key4hep stack recorded in `FCCAnalyses/.fccana/stack_pin`, and configures the `FCCAnalyses` `PATH`/`PYTHONPATH`):
+Set up the environment (sources the pinned key4hep stack recorded in `FCCAnalyses/.fccana/stack_pin`, configures the `FCCAnalyses` `PATH`/`PYTHONPATH`, and puts `src/` on `PYTHONPATH` for the shared modules such as `run_list`):
 
 ```bash
 source setup.sh
@@ -31,7 +31,7 @@ cd ..
 
 > To update the pinned stack, edit `FCCAnalyses/.fccana/stack_pin`. `FCCAnalyses/setup.sh` also accepts `-l/--latest`, `-n/--nightlies`, or `-b/--from-build` if you need a different stack than the pinned one (see `source FCCAnalyses/setup.sh --help`).
 
-Every new shell session, just re-run `source setup.sh` from the repo root before working with `fccanalysis`.
+Every new shell session, just re-run `source setup.sh` from the repo root before working with `fccanalysis` or the plotting scripts.
 
 ## Repository layout
 

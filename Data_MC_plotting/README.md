@@ -4,7 +4,7 @@ Flexible script to make plots with data and MC for the revived ALEPH datasets, a
 
 ## Setup and input preparation
 
-Follow the instructions of the main repo to setup the key4hep stack. 
+Follow the instructions of the main repo to set up the environment (`source setup.sh` from the repo root: key4hep stack, FCCAnalyses, and `src/` on `PYTHONPATH` for the shared `run_list` module that the configs import). 
 
 Common input files can be found on eos in `/eos/user/h/hfatehi/D0fliped-good/` currently. Otherwise, use the scripts in this repo to produce ` stage 1` or `inference` type of input files. 
 

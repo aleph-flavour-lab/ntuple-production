@@ -5,8 +5,6 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import os
 import gc
-import sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import run_list
 
 # ================================================================
