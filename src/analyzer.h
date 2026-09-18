@@ -262,7 +262,8 @@ ROOT::VecOps::RVec<float>
 get_track_chi2_o_ndf(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in){
   ROOT::VecOps::RVec<float> chi2_out;
   for (const auto &track : tracks_in) {
-    chi2_out.push_back(float(track.chi2/track.ndf));
+    // -1 for a track without degrees of freedom, as in the constituent helper
+    chi2_out.push_back(track.ndf != 0 ? float(track.chi2 / track.ndf) : -1.f);
   }
   return chi2_out;
 }
