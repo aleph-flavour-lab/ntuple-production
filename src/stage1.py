@@ -3,7 +3,7 @@ import os
 import sys
 from argparse import ArgumentParser
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from run_veto import vetoed_runs
+import run_list
 
 
 def run_number(text):
@@ -39,9 +39,9 @@ class Analysis():
         parser.add_argument('--chunks', default=None, type=int,
                             help='Number of chunks per process/file')
         parser.add_argument('--excludeRuns', nargs='+', action='extend', default=[], type=run_number, metavar='RUN',
-                            help='data only: veto these run numbers in addition to the run_veto.py list (eventsProcessed still counts the raw input).')
-        parser.add_argument('--noRunVeto', action='store_true',
-                            help='data only: do not apply the run_veto.py list (--excludeRuns still applies).')
+                            help='data only: drop these run numbers in addition to the run list (eventsProcessed still counts the raw input).')
+        parser.add_argument('--noRunList', action='store_true',
+                            help='data only: keep every run instead of the data/lumi run list (--excludeRuns still applies).')
         parser.add_argument('--noDedxGate', action='store_true',
                             help='accept every linked dE/dx measurement as valid, i.e. switch off the failed-leg omega sentinel gate; for converters that no longer copy omega into a failed leg.')
         # Parse additional arguments not known to the FCCAnalyses parsers
@@ -50,8 +50,8 @@ class Analysis():
         self.ana_args, unknown = parser.parse_known_args(cmdline_args['remaining'])
         if unknown:
             print(f"----> WARNING: unrecognised arguments ignored: {' '.join(unknown)}")
-        if not self.ana_args.doData and (self.ana_args.excludeRuns or self.ana_args.noRunVeto):
-            print("----> ERROR: --excludeRuns and --noRunVeto apply to data only (--doData); Monte Carlo has no run veto.")
+        if not self.ana_args.doData and (self.ana_args.excludeRuns or self.ana_args.noRunList):
+            print("----> ERROR: --excludeRuns and --noRunList apply to data only (--doData); Monte Carlo has no run list.")
             exit()
 
         #Dictionary for setting output names:
@@ -182,16 +182,30 @@ class Analysis():
         }
 
         if self.ana_args.doData:
-            veto_runs = set(self.ana_args.excludeRuns)
-            if not self.ana_args.noRunVeto:
-                listed = vetoed_runs(self.ana_args.year)
-                if not listed:
-                    print(f"----> WARNING: no run veto list for year {self.ana_args.year}; none applied.")
-                veto_runs |= listed
-            print(f"----> run veto: {len(veto_runs)} runs {sorted(veto_runs)}")
-            if veto_runs:
-                veto = "EventHeader.runNumber.size() == 1 && " + " && ".join(f"EventHeader.runNumber[0] != {r}" for r in sorted(veto_runs))
-                df = df.Filter(veto, "runVeto")
+            # Run selection: keep the runs of the data/lumi list (minus --excludeRuns); with
+            # --noRunList only --excludeRuns is applied. The list is read on the node that builds
+            # the graph, so it has to be reachable there (see $ALEPH_RUN_LIST_<year> in run_list.py).
+            excluded = set(self.ana_args.excludeRuns)
+            kept = None
+            if not self.ana_args.noRunList:
+                if not run_list.has_list(self.ana_args.year):
+                    print(f"----> ERROR: no run list for year {self.ana_args.year} ({run_list.run_list_file(self.ana_args.year)}); pass --noRunList to run without one.")
+                    exit()
+                kept = run_list.good_runs(self.ana_args.year) - excluded
+                if not kept:
+                    print("----> ERROR: the run list minus --excludeRuns is empty.")
+                    exit()
+                print("----> " + run_list.summary(self.ana_args.year, exclude=excluded))
+            print(f"----> run selection: {'all runs' if kept is None else f'{len(kept)} listed runs'}, {len(excluded)} excluded {sorted(excluded)}")
+            if kept is not None:
+                import ROOT
+                if not hasattr(ROOT, "AlephRunList"):
+                    ROOT.gInterpreter.Declare(
+                        "namespace AlephRunList { const std::unordered_set<int> kept{" + ",".join(str(r) for r in sorted(kept)) + "};"
+                        " bool keep(int run) { return kept.count(run) > 0; } }")
+                df = df.Filter("EventHeader.runNumber.size() == 1 && AlephRunList::keep(EventHeader.runNumber[0])", "runList")
+            elif excluded:
+                df = df.Filter("EventHeader.runNumber.size() == 1 && " + " && ".join(f"EventHeader.runNumber[0] != {r}" for r in sorted(excluded)), "runList")
             #df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset)   || AlephSelection::sel_class_filter(17)(ClassBitset) ")
             df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset) ")
             df = df.Define("jetPID", "-999")

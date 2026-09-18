@@ -36,7 +36,7 @@ The following variables are set in the config files:
 - `data` and `mc_processes`: These define the filenames/samples for data and MC processes plotted. Again they use named dictionaries and are defined in the helper file `Zqq_processes.py`. See below for explanation. 
 - `year`: The data taking year, will be added as label on the plots.
 - `sel_tag`: A string that specifies the analysis or selection level of events, will be added as label on the plots.
-- `lumi` : The luminosity to normalise MC to,  will be added as label on the plots.
+- `lumi` : The luminosity to normalise MC to,  will be added as label on the plots. `plotting_config_stage1.py` takes it from `src/run_list.py`, i.e. the luminosity of the runs kept by stage1 (`data/lumi/run_list_<year>.csv`).
 - `ecm` : The center of mass energy,  will be added as label on the plots.
 - `norm_file` : This is a `.json` file which contains the normalisation info for each process, so cross-section, k-factor, matching efficiency. Follows the same standard as used by the `EventProducer` and `FCCAnalyses` approach. Note that the values for `numberOfEvents` and `sumOfWeights` are placeholders, since these will be read from the input ntuples, as they are recalculated during each production to account for failed jobs or otherwise missing files. 
 - `do_log_y` : Whether to set the y-axis to logarithmic.

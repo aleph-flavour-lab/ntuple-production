@@ -1,15 +1,19 @@
 # Default config for plotting from the stage 1 ntuples, grouping uds = light jets
 
+import os
+import sys
 import Zqq_plots 
 import Zqq_processes 
 import Zqq_selections
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+import run_list
 
 class PlottingConfig:
 
     # Meta-data about the data plotted -> some of it used to define filenames as well
     year = "1994"
     sel_tag = "Selected events"
-    lumi = 57.89 # in pb-1
+    lumi = run_list.luminosity_pb(year) # in pb-1, of the runs kept by stage1 (data/lumi/run_list_<year>.csv)
     ecm = 91. # in GeV
     norm_file = "normalisation.json" # json file with the cross-section information, following FCCAnalyses format
     mc_type = "zqq"

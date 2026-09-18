@@ -3,6 +3,10 @@ import awkward as ak
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+import os
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import run_list
 
 # Set Physical Review D style with LaTeX
 plt.rcParams.update({
@@ -41,7 +45,7 @@ flavors = {
 colors = ['#8dd3c7', '#bebada', '#fb8072', '#80b1d3', '#fdb462']
 
 # Cross-section normalization factor
-xs_normalization = 57.89 * 30385 / 1080986
+xs_normalization = run_list.luminosity_pb(1994) * 30385 / 1080986  # pb^-1 of the runs kept by stage1
 print(f"Cross-section normalization factor: {xs_normalization:.6f}")
 
 # ------------------------
