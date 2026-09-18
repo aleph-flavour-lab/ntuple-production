@@ -44,8 +44,10 @@ inline RVec<RVec<int>> buildTrackToMCs(size_t n_tracks,
   return out;
 }
 
-// PDG code of the MC particle linked to each original track index (first link
-// when a track has several), 0 for an invalid index or an unlinked track.
+// PDG code of the MC particle linked to each original track index, 0 for an
+// invalid index or an unlinked track. A track links to every MC particle with a
+// hit on it, in hit order along the track, all with weight 1.0: the first link
+// is taken, which is usually the parent for a decay in flight.
 inline RVec<int> trackTruePdg(const RVec<int>& origIdx,
                               const RVec<RVec<int>>& trackToMCs,
                               const RVec<edm4hep::MCParticleData>& mc) {

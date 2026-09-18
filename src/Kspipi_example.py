@@ -35,7 +35,12 @@ trk1 = the higher-momentum daughter, leg 1 = trk2:
     trackTruePdg(origIdx, trackToMCs, MCParticles)          MC only: PDG code of the
         generator particle linked to the track (211 pion, 321 kaon, 2212 proton,
         11 electron, 13 muon; PDG sign convention: +211 = pi+ but +11 = e-;
-        0 = no link)
+        0 = no link). A track links to every MC particle that left at least one
+        hit on it, in the order the hits are met along the track; the converter
+        leaves every link weight at 1.0, so the first link is taken. About 9% of
+        linked tracks have several links, and for ~1% the first is not the
+        particle that best matches the track momentum (mostly pi/K -> mu decays
+        in flight, where the first link is usually the parent).
 
 Output: event_number, run_number and a flat ks_* block, one entry per tight Ks:
 n_ks, ks_invM, ks_p, ks_trk{1,2}_{origIdx,q,p,dEdx_wires_value,dEdx_wires_error}
