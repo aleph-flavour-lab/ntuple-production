@@ -13,7 +13,8 @@ Verdict (column `reason`, `selected` = 1 only for `ok`):
   truncated_counters  hadronic class-16 events in the files exceed the database Z count
                       (n_z0) by more than TRUNC: the SICAL Bhabha counter, hence the stored
                       luminosity, covers only part of the run (column `truncated`, set for
-                      every run whatever its flags)
+                      every run with a stored luminosity whatever its flags; runs without
+                      one are valued from the lepton-pair rate and are not checked)
   ok
 
 Luminosity monitor: the large-angle lepton-pair rate (event class 15) per stored SICAL
