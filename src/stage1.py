@@ -230,6 +230,11 @@ class Analysis():
             df = df.Define("Beamspot_y", "0.0")
             df = df.Define("Beamspot_z", "0.0")
 
+        if self.do_pvnew:
+            df = df.Define("Beamspot_x_cm", "Beamspot_x*1e-3")
+            df = df.Define("Beamspot_y_cm", "Beamspot_y*1e-3")
+            df = df.Define("Beamspot_z_cm", "Beamspot_z*1e-3")
+
         # ==== Track selection (to harmonize with Luka's code)
         # Note: The selection strategy here only works if there is one trackstate stored pre track.
         # The code includes an assertion for that, if it is somehow not the case it will fail. 
@@ -246,7 +251,7 @@ class Analysis():
 
         # impose upper bounds on impact parameters to pre-select compatible tracks for the primary vertex fit 
         if self.do_pvnew:
-            df = df.Define("tracks_selected_for_vertexfit_result","AlephSelection::select_tracks_impactparameters_bs( tracks_selected_baseline_result, {0}::PVN_D0_MAX, {0}::PVN_Z0_MAX, Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3 )".format(PVNEW)) 
+            df = df.Define("tracks_selected_for_vertexfit_result","AlephSelection::select_tracks_impactparameters_bs( tracks_selected_baseline_result, {0}::PVN_D0_MAX, {0}::PVN_Z0_MAX, Beamspot_x_cm, Beamspot_y_cm, Beamspot_z_cm )".format(PVNEW)) 
         else:
             df = df.Define("tracks_selected_for_vertexfit_result","AlephSelection::select_tracks_impactparameters( tracks_selected_baseline_result, 0.75, 2.0 )") 
         df = df.Define("tracks_selected_for_vertexfit","tracks_selected_for_vertexfit_result.tracks") 
@@ -273,19 +278,16 @@ class Analysis():
         chi2max = 5. # the maximum chi2 under which tracks are compatible with vertex fit
 
         if self.do_pvnew:
-            bs_sig_cm = "{0}::PVN_BS_SIGMA_X, {0}::PVN_BS_SIGMA_Y, {0}::PVN_BS_SIGMA_Z".format(PVNEW)
-            pvn_chi2max = "{}::PVN_CHI2_MAX".format(PVNEW)
-            bs_cm = ("FCCAnalyses::AlephPVNew::BeamSpot{{Beamspot_x*1e-3, Beamspot_y*1e-3, "
-                     "Beamspot_z*1e-3, {}}}").format(bs_sig_cm)
-            df = df.Define("PVSelNew", "FCCAnalyses::AlephPVNew::select_primary_tracks(trackstates_selected_for_vertexfit_flipped, {}, {})".format(bs_cm, pvn_chi2max))
+            bs_cm = "{}::beamSpot(Beamspot_x_cm, Beamspot_y_cm, Beamspot_z_cm)".format(PVNEW)
+            df = df.Define("PVSelNew", "{}::select_primary_tracks(trackstates_selected_for_vertexfit_flipped, {})".format(PVNEW, bs_cm))
             df = df.Define("pv_converged",       "int(PVSelNew.fit.converged)")
             df = df.Define("pv_split_converged", "int(PVSelNew.split_converged)")
             df = df.Define("pv_trivial",         "int(PVSelNew.trivial)")
-            df = df.Define("pv_good",            "int(FCCAnalyses::AlephPVNew::goodPV(PVSelNew))")
-            df = df.Define("RecoedPrimaryTracks_looseBS", "FCCAnalyses::AlephPVNew::primaryTracksFromSel(trackstates_selected_for_vertexfit_flipped, PVSelNew, Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3, {})".format(pvn_chi2max))
-            df = df.Define("VertexObject_looseBS", "FCCAnalyses::AlephPVNew::toFCCVertex(PVSelNew)")
+            df = df.Define("pv_good",            "int({}::goodPV(PVSelNew))".format(PVNEW))
+            df = df.Define("RecoedPrimaryTracks_looseBS", "{}::primaryTracksFromSel(trackstates_selected_for_vertexfit_flipped, PVSelNew, Beamspot_x_cm, Beamspot_y_cm, Beamspot_z_cm)".format(PVNEW))
+            df = df.Define("VertexObject_looseBS", "{}::toFCCVertex(PVSelNew)".format(PVNEW))
             df = df.Define("Vertex_refit_looseBS", "VertexObject_looseBS.vertex")
-            df = df.Define("Vertex_refit_tlv", "pv_good ? TLorentzVector(Vertex_refit_looseBS.position.x, Vertex_refit_looseBS.position.y, Vertex_refit_looseBS.position.z, 0.) : TLorentzVector(Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3, 0.)")
+            df = df.Define("Vertex_refit_tlv", "pv_good ? TLorentzVector(Vertex_refit_looseBS.position.x, Vertex_refit_looseBS.position.y, Vertex_refit_looseBS.position.z, 0.) : TLorentzVector(Beamspot_x_cm, Beamspot_y_cm, Beamspot_z_cm, 0.)")
         else:
             # no primary tracks with fewer than 2 pre-selected tracks (get_PrimaryTracks would keep the one)
             df = df.Define("RecoedPrimaryTracks_looseBS", "trackstates_selected_for_vertexfit_flipped.size() < 2 ? ROOT::VecOps::RVec<edm4hep::TrackState>{{}} : VertexFitterSimple::get_PrimaryTracks(trackstates_selected_for_vertexfit_flipped, true, {},{},{}, Beamspot_x, Beamspot_y, Beamspot_z, {})".format(res_x_loose/10., res_y_loose/10., res_z_loose*1E03, chi2max)) # 10um as unit (x,y), 1cm as unit (z)

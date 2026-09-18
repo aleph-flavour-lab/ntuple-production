@@ -353,7 +353,7 @@ select_tracks_impactparameters(const SelectedTracks& input,
 }
 
 
-// same window, |D0| and |Z0| referenced to the beamspot b [cm]; raw d0 sign is opposite to EDM4HEP
+// same window, |D0| and |Z0| referenced to the beamspot b [cm]; raw states: d0 = -D0*n, dphi/ds = +omega
 SelectedTracks
 select_tracks_impactparameters_bs(const SelectedTracks& input,
                                   float d0_upper_bound,
@@ -373,7 +373,7 @@ select_tracks_impactparameters_bs(const SelectedTracks& input,
         const double sphi = std::sin(state.phi);
 
         const double s   = bsx * cphi + bsy * sphi;
-        const double d0p = state.D0 - bsx * sphi + bsy * cphi + 0.5 * state.omega * s * s;
+        const double d0p = state.D0 - bsx * sphi + bsy * cphi - 0.5 * state.omega * s * s;
         const double z0p = state.Z0 - bsz + state.tanLambda * s;
 
         if (std::abs(d0p) > d0_upper_bound) continue;

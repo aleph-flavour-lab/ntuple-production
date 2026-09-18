@@ -16,17 +16,14 @@
 #include <array>
 #include <cmath>
 #include <limits>
-#include <string>
 #include <vector>
 
 #include <Eigen/Dense>
 #include <ROOT/RVec.hxx>
-#include "TVector3.h"
 
 #include "edm4hep/TrackState.h"
 #include "edm4hep/EDM4hepVersion.h"
 #include "FCCAnalyses/VertexingUtils.h"
-#include "aleph_units.h"
 
 namespace FCCAnalyses {
 namespace AlephPVNew {
@@ -67,6 +64,10 @@ struct BeamSpot {
   }
 };
 
+inline BeamSpot beamSpot(double x, double y, double z) {
+  return BeamSpot{x, y, z, PVN_BS_SIGMA_X, PVN_BS_SIGMA_Y, PVN_BS_SIGMA_Z};
+}
+
 struct FitConfig {
   int max_iter = 60;            // hard cap on damped Gauss-Newton iterations
   double tol_step = 1e-8;       // convergence: dx^T H dx (dimensionless)
@@ -87,24 +88,9 @@ enum PVStatus : int {
   kOk = 0,
   kMaxIter = 1,
   kLmStall = 2,
-  kDivergedRadius = 3,
-  kSingularHessian = 4,
-  kLinalgFail = 5,
-  kTooFewTracks = 6
+  kSingularHessian = 3,
+  kTooFewTracks = 4
 };
-
-inline const char* status_name(int s) {
-  switch (s) {
-    case kOk: return "ok";
-    case kMaxIter: return "max_iter";
-    case kLmStall: return "lm_stall";
-    case kDivergedRadius: return "diverged_radius";
-    case kSingularHessian: return "singular_hessian";
-    case kLinalgFail: return "linalg_fail";
-    case kTooFewTracks: return "too_few_tracks";
-  }
-  return "unknown";
-}
 
 enum PVSeed : int {
   kSeedNone = -1,
@@ -112,15 +98,6 @@ enum PVSeed : int {
   kSeedBeamspot = 2,
   kSeedPerigeeMedian = 3
 };
-
-inline const char* seed_name(int s) {
-  switch (s) {
-    case kSeedLinear: return "linear";
-    case kSeedBeamspot: return "beamspot";
-    case kSeedPerigeeMedian: return "perigee_median";
-  }
-  return "none";
-}
 
 // Fit result; converged == false means the values must not be used as a vertex.
 struct PVFitResult {
@@ -136,14 +113,12 @@ struct PVFitResult {
   bool converged = false;
   int status = kTooFewTracks;
   RVec<double> track_chi2;
-  RVec<double> track_phase;   // transverse arc length L at the vertex, cm
   int n_tracks = 0;
   bool beamspot_used = false;
   double cond_hessian = std::numeric_limits<double>::infinity();
   double cond_track_max = std::numeric_limits<double>::infinity();
   int n_rejected_steps = 0;
   int seed_used = kSeedNone;
-  std::string seeds_tried;    // e.g. "linear:ok" / "linear:lm_stall,beamspot:ok"
 };
 
 // Result of the iterative chi2max pruning.
@@ -224,8 +199,7 @@ inline Vec3 helix_dXdL(const Vec5& p, double L) {
 }
 
 inline Mat35 helix_dXdpar(const Vec5& p, double L) {
-  const double D = p(0), p0 = p(1), C = p(2), ct = p(4);
-  (void)ct;
+  const double D = p(0), p0 = p(1), C = p(2);
   const double u = C * L;
   const double s_u = sinc_(u);
   const double f = L * s_u;             // sin(CL)/C
@@ -275,13 +249,17 @@ inline Mat3 reg_inv(const Mat3& M_in, double rcond, double& cond, bool& ok) {
   return V * wc.cwiseInverse().asDiagonal() * V.transpose();
 }
 
+inline Mat3 reg_inv(const Mat3& M_in, double rcond) {
+  double cond;
+  bool ok;
+  return reg_inv(M_in, rcond, cond, ok);
+}
+
 // Solve H dx = -g; falls back to the regularised eigen-inverse on failure.
 inline Vec3 cholesky_solve(const Mat3& H, const Vec3& g, double rcond) {
   Eigen::LLT<Mat3> llt(H);
   if (llt.info() == Eigen::Success) return llt.solve(-g);
-  double cond;
-  bool ok;
-  Mat3 Hi = reg_inv(H, rcond, cond, ok);
+  const Mat3 Hi = reg_inv(H, rcond);
   return -(Hi * g);
 }
 
@@ -305,9 +283,7 @@ inline void track_terms(const TrackSet& ts, const Vec3& x,
       const Mat35 A = helix_dXdpar(ts.par[i], L[i]);
       const Vec3 a = helix_dXdL(ts.par[i], L[i]);
       const Mat3 Winv = A * ts.cov[i] * A.transpose();
-      double cond;
-      bool ok;
-      const Mat3 W = reg_inv(Winv, cfg.rcond, cond, ok);
+      const Mat3 W = reg_inv(Winv, cfg.rcond);
       const Vec3 aw = W * a;
       const double denom = a.dot(aw);
       if (!(denom > 0) || !std::isfinite(denom)) continue;  // conv, dL = 0
@@ -372,9 +348,7 @@ inline Vec3 seed_linear(const TrackSet& ts, const BeamSpot* bs,
     const Mat35 A = helix_dXdpar(ts.par[i], 0.0);
     const Vec3 a = helix_dXdL(ts.par[i], 0.0);
     const Mat3 Winv = A * ts.cov[i] * A.transpose();
-    double cond;
-    bool ok;
-    const Mat3 W = reg_inv(Winv, cfg.rcond, cond, ok);
+    const Mat3 W = reg_inv(Winv, cfg.rcond);
     const Vec3 aw = W * a;
     const double den = a.dot(aw);
     const Mat3 Di =
@@ -421,7 +395,6 @@ struct RunResult {
   double chi2 = std::numeric_limits<double>::quiet_NaN();
   double chi2_bs = 0.0;
   std::vector<double> trk_chi2;
-  std::vector<double> L;
   int n_iter = 0;
   int status = kMaxIter;
   bool converged = false;
@@ -437,7 +410,7 @@ inline RunResult run_from_seed(const TrackSet& ts, const BeamSpot* bs,
   RunResult rr;
   Vec3 x = x0;
   std::vector<double> L(N, 0.0);
-  TrackTerms tt;
+  TrackTerms tt, ttn;
   double chi2_bs;
   double chi2 = chi2_total(ts, x, L, cfg, bs, tt, chi2_bs);
   L = tt.L;
@@ -461,16 +434,16 @@ inline RunResult run_from_seed(const TrackSet& ts, const BeamSpot* bs,
       Mat3 Hd = H;
       for (int k = 0; k < 3; ++k) Hd(k, k) += lam * H(k, k);
       const Vec3 dx = cholesky_solve(Hd, g, cfg.rcond);
-      if (!dx.allFinite()) {
-        status = kLinalgFail;
-        break;
-      }
       const Vec3 xn = x + dx;
-      if (xn.norm() > cfg.max_radius) {
-        status = kDivergedRadius;
-        break;
+      if (!dx.allFinite() || xn.norm() > cfg.max_radius) {
+        lam *= cfg.lm_up;
+        ++nrej;
+        if (lam > cfg.lm_lambda_max || nrej > cfg.max_reject) {
+          status = kLmStall;
+          break;
+        }
+        continue;
       }
-      TrackTerms ttn;
       double chi2_bs_n;
       const double c2n = chi2_total(ts, xn, L, cfg, bs, ttn, chi2_bs_n);
       const double dstep = dx.dot(H * dx);  // undamped H
@@ -480,8 +453,8 @@ inline RunResult run_from_seed(const TrackSet& ts, const BeamSpot* bs,
         x = xn;
         chi2 = c2n;
         chi2_bs = chi2_bs_n;
-        tt = ttn;
-        L = ttn.L;
+        std::swap(tt, ttn);
+        L = tt.L;
         lam = std::max(lam * cfg.lm_down, 1e-14);
         accepted = true;
         if (dstep < cfg.tol_step && dchi2 < tolc) status = kOk;
@@ -499,9 +472,7 @@ inline RunResult run_from_seed(const TrackSet& ts, const BeamSpot* bs,
         break;
       }
     }
-    if (status == kOk || status == kLmStall || status == kLinalgFail ||
-        status == kDivergedRadius)
-      break;
+    if (status == kOk || status == kLmStall) break;
     if (!accepted) break;
   }
 
@@ -519,7 +490,6 @@ inline RunResult run_from_seed(const TrackSet& ts, const BeamSpot* bs,
   rr.chi2 = chi2;
   rr.chi2_bs = chi2_bs;
   rr.trk_chi2 = tt.chi2;
-  rr.L = tt.L;
   rr.n_iter = it;
   rr.status = status;
   rr.converged = converged;
@@ -536,7 +506,6 @@ inline PVFitResult fit_core(const TrackSet& ts, const BeamSpot* bs,
   out.n_tracks = static_cast<int>(N);
   out.beamspot_used = (bs != nullptr);
   out.track_chi2.resize(N, 0.0);
-  out.track_phase.resize(N, 0.0);
 
   if (N < 2 && bs == nullptr) {
     out.status = kTooFewTracks;
@@ -545,7 +514,6 @@ inline PVFitResult fit_core(const TrackSet& ts, const BeamSpot* bs,
   }
 
   const int ladder[3] = {kSeedLinear, kSeedBeamspot, kSeedPerigeeMedian};
-  std::string tried;
   bool have_best = false;
   RunResult best;
   int best_seed = kSeedNone;
@@ -555,26 +523,16 @@ inline PVFitResult fit_core(const TrackSet& ts, const BeamSpot* bs,
     else if (rung == kSeedBeamspot) x0 = bs ? bs->center() : Vec3::Zero();
     else x0 = seed_perigee_median(ts);
 
-    if (!tried.empty()) tried += ",";
-    if (!x0.allFinite()) {
-      tried += std::string(seed_name(rung)) + ":badseed";
-      continue;
-    }
+    if (!x0.allFinite()) continue;
     RunResult res = run_from_seed(ts, bs, x0, cfg);
-    tried += std::string(seed_name(rung)) + ":" + status_name(res.status);
-    if (!have_best) {
+    if (res.converged || !have_best) {
       best = res;
       best_seed = rung;
       have_best = true;
     }
-    if (res.converged) {
-      if (!best.converged || res.chi2 < best.chi2 - 1e-9) {
-        best = res;
-        best_seed = rung;
-      }
-      break;  // first converged seed wins
-    }
+    if (res.converged) break;  // first converged seed wins
   }
+  if (!have_best) return out;  // no usable start point
 
   out.position = {best.x(0), best.x(1), best.x(2)};
   out.cov = {best.cov(0, 0), best.cov(1, 0), best.cov(1, 1),
@@ -587,12 +545,10 @@ inline PVFitResult fit_core(const TrackSet& ts, const BeamSpot* bs,
   out.converged = best.converged;
   out.status = best.status;
   out.track_chi2.assign(best.trk_chi2.begin(), best.trk_chi2.end());
-  out.track_phase.assign(best.L.begin(), best.L.end());
   out.cond_hessian = best.condH;
   out.cond_track_max = best.cond_tr;
   out.n_rejected_steps = best.nrej;
   out.seed_used = best_seed;
-  out.seeds_tried = tried;
   return out;
 }
 
@@ -615,15 +571,25 @@ inline PVSelResult select_core(const TrackSet& ts, const BeamSpot* bs,
   }
 
   TrackSet sub = ts;
+  PVFitResult last_ok;
+  std::vector<int> last_ok_keep;
+  bool have_ok = false;
   while (true) {
     PVFitResult res = fit_core(sub, bs, cfg);
     ++out.n_passes;
     if (!res.converged) {
-      out.kept.assign(keep.begin(), keep.end());
-      out.fit = res;
+      if (!have_ok) {
+        last_ok = res;
+        last_ok_keep = keep;
+      }
+      out.kept.assign(last_ok_keep.begin(), last_ok_keep.end());
+      out.fit = last_ok;
       out.split_converged = false;
       return out;
     }
+    last_ok = res;
+    last_ok_keep = keep;
+    have_ok = true;
     // strict '>' scan: the lowest index wins an exact tie
     double cmax = -std::numeric_limits<double>::infinity();
     int imax = -1;
@@ -651,7 +617,7 @@ inline PVSelResult select_core(const TrackSet& ts, const BeamSpot* bs,
 // Iterative chi2max pruning with the same fitter and beam spot as the final fit.
 inline PVSelResult select_primary_tracks(
     const RVec<edm4hep::TrackState>& tracks, const BeamSpot& bs,
-    double chi2_max, const FitConfig& cfg = FitConfig(),
+    double chi2_max = PVN_CHI2_MAX, const FitConfig& cfg = FitConfig(),
     int min_tracks = 2) {
   const detail::TrackSet ts = detail::convert(tracks);
   return detail::select_core(ts, &bs, chi2_max, cfg, min_tracks);
@@ -689,7 +655,7 @@ inline VertexingUtils::FCCAnalysesVertex toFCCVertex(const PVSelResult& sel) {
 // Primary-track split: kept set, else all tracks vs the beam spot; empty if < 2.
 inline RVec<edm4hep::TrackState> primaryTracksFromSel(
     const RVec<edm4hep::TrackState>& tracks, const PVSelResult& sel,
-    double bx, double by, double bz, double chi2_max,
+    double bx, double by, double bz, double chi2_max = PVN_CHI2_MAX,
     const FitConfig& cfg = FitConfig()) {
   RVec<edm4hep::TrackState> out;
   if (tracks.size() < 2) return out;
