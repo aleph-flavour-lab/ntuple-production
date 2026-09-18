@@ -53,6 +53,20 @@ The −9 sentinel of `pfcand_d0`/`pfcand_z0` lies inside the physical range of t
 
 `pfcand_dEdx_pads_type` and `pfcand_dEdx_wires_type` are no longer a validity mask: an accepted leg can carry any type and a rejected one reads −9 in value, error and type, so test the value branch rather than `type == 0`.
 
+### The primary-vertex fit
+
+The primary vertex is reconstructed by a standalone fitter, [`analyzer_pvnew.h`](analyzer_pvnew.h): a damped Gauss-Newton fit of the track helices to a common point, with a Gaussian beamspot constraint, a deterministic seed ladder, and iterative pruning of the tracks that are incompatible with the vertex. It is the default; `--oldPV` restores the previous chain.
+
+Tracks enter the fit through a pre-selection window on the impact parameters, `|D0| < 0.75 cm` and `|Z0| < 5 cm` (`PVN_D0_MAX`, `PVN_Z0_MAX`), referenced to the run beamspot. Track/vertex compatibility is then judged at `chi2max = 5` (`PVN_CHI2_MAX`); lowering it claims fewer tracks as primary and so leaves more to the secondary finders. Both fits — the selection fit that prunes the track list and the final position fit — share one beamspot constraint, of Gaussian widths 200 µm in x, 100 µm in y and 2 cm along the beam (`PVN_BS_SIGMA_X/Y/Z`, declared in cm). Every tuned value is a named `constexpr` in that header and is not configurable from the command line.
+
+Four `int` quality flags are written: `pv_converged` (the position fit converged), `pv_split_converged` (every pruning pass converged, not only the final fit), `pv_trivial` (fewer than two pre-selected tracks entered the fit, so the vertex carries no event information even when both fits converge) and `pv_good`, the single predicate `pv_converged && pv_split_converged && !pv_trivial` that downstream users should test. The vertex position is always written — a nonsensical position is itself the diagnostic — while the covariance is zeroed when the fit did not converge. Consumers are guarded on `pv_good`: the PV-referenced jet-constituent variables fall back to the beamspot position, and the secondary-vertex and V0 collections are empty, for an event without a good PV. The vertex position itself is always written.
+
+The PV fit covariance `Vertex_refit_cov_xx`, `_yx`, `_yy`, `_zx`, `_zy`, `_zz` (lower-triangular, cm²) and the fit quality `Vertex_refit_chi2` (χ²/ndf) are written by both chains.
+
+| flag | meaning |
+| --- | --- |
+| `--oldPV` | legacy PV chain, unchanged from before this module: `get_PrimaryTracks` + `VertexFitter_Tk`, with the origin-referenced `|D0| < 0.75 cm`, `|Z0| < 2 cm` pre-selection instead of the beamspot-referenced one. No `pv_*` flag branches; every other branch is bit-identical to the pre-module output, with the covariance and chi2 branches above added. Note that the beamspot constraint of the `get_PrimaryTracks` selection fit is passed in 10 µm units while its track parameters are read in cm, so that constraint is off by a factor 1000 and is effectively absent; the final `VertexFitter_Tk` fit is unaffected. |
+
 ### Run on batch:
 ```
 fccanalysis submit stage1.py -- --tag VXX-XX --MCflavour X --batch --chunks X
