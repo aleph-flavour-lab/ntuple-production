@@ -276,10 +276,14 @@ struct SelectedTracks {
 };
 
 
-// Base track selection
+constexpr int kTrackMinTPCHits = 4;
+
+/// Base track selection: chi2/ndf <= 10, finite positive d0/phi/z0 perigee variances and at least `min_tpc_hits` TPC hits.
 SelectedTracks
 select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
-              const ROOT::VecOps::RVec<edm4hep::TrackState>& trackstates_in) {
+              const ROOT::VecOps::RVec<edm4hep::TrackState>& trackstates_in,
+              const ROOT::VecOps::RVec<int>& subdetectorHitNumbers,
+              int min_tpc_hits) {
   
   SelectedTracks selected_tracks_and_states;
 
@@ -292,6 +296,15 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
       continue;
     }
     if (track.chi2 / track.ndf > 10.){
+      continue;
+    }
+
+    // component 2 of subdetectorHitNumbers is the TPC; a track without it counts as zero hits
+    const size_t tpc_index = track.subdetectorHitNumbers_begin + 2;
+    const int n_tpc_hits = (tpc_index < track.subdetectorHitNumbers_end &&
+                            tpc_index < subdetectorHitNumbers.size())
+                               ? subdetectorHitNumbers[tpc_index] : 0;
+    if (n_tpc_hits < min_tpc_hits){
       continue;
     }
 

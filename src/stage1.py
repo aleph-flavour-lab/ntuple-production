@@ -29,6 +29,8 @@ class Analysis():
                             help='Number of chunks per process/file')
         parser.add_argument('--noDedxGate', action='store_true',
                             help='accept every linked dE/dx measurement as valid, i.e. switch off the failed-leg omega sentinel gate; for converters that no longer copy omega into a failed leg.')
+        parser.add_argument('--noTPCHitCut', action='store_true',
+                            help='drop the minimum-TPC-hits requirement from the baseline track selection shared by the vertex fit, the V0 and the secondary vertex finders.')
         # Parse additional arguments not known to the FCCAnalyses parsers
         # All command line arguments know to fccanalysis are provided in the
         # `cmdline_arg` dictionary.
@@ -212,8 +214,9 @@ class Analysis():
         df = df.Define("ndf_tracks_all","AlephSelection::get_track_ndf( Tracks )") #TODO: use collection here
         df = df.Define("chi2_o_ndf_tracks_all","AlephSelection::get_track_chi2_o_ndf( Tracks )") #TODO: use collection here
         
-        # baseline track selection: positive definite cov matrix & chi2 < 10 
-        df = df.Define("tracks_selected_baseline_result","AlephSelection::select_tracks_baseline( Tracks, _Tracks_trackStates )") #TODO: use collection here  0.75, 2.0
+        # baseline track selection: positive definite cov matrix, chi2 < 10 & minimum number of TPC hits
+        min_tpc_hits = "0" if self.ana_args.noTPCHitCut else "AlephSelection::kTrackMinTPCHits"
+        df = df.Define("tracks_selected_baseline_result",f"AlephSelection::select_tracks_baseline( Tracks, _Tracks_trackStates, _Tracks_subdetectorHitNumbers, {min_tpc_hits} )") #TODO: use collection here  0.75, 2.0
         df = df.Define("tracks_selected_baseline","tracks_selected_baseline_result.tracks") 
         df = df.Define("trackstates_selected_baseline","tracks_selected_baseline_result.trackStates") 
 
