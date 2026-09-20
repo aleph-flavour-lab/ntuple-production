@@ -25,6 +25,7 @@
 #include "edm4hep/EventHeaderCollection.h"
 #include <bitset>
 #include <cmath>
+#include <limits>
 #include <vector>
 #include <map>
 #include <mutex>
@@ -277,6 +278,7 @@ struct SelectedTracks {
 
 
 constexpr int kTrackMinTPCHits = 4;
+constexpr double kTrackMaxAbsZ0 = 50.;  // cm
 
 /// True if the 5x5 perigee block (d0, phi, omega, z0, tanLambda) of a lower-triangular packed covariance is finite and positive definite.
 template <typename Cov>
@@ -299,12 +301,13 @@ bool perigeeCovPositiveDefinite(const Cov& cov) {
   return true;
 }
 
-/// Base track selection: chi2/ndf <= 10, a finite positive-definite perigee covariance and at least `min_tpc_hits` TPC hits.
+/// Base track selection: chi2/ndf <= 10, a finite positive-definite perigee covariance, at least `min_tpc_hits` TPC hits and |z0| <= `max_abs_z0`.
 SelectedTracks
 select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
               const ROOT::VecOps::RVec<edm4hep::TrackState>& trackstates_in,
               const ROOT::VecOps::RVec<int>& subdetectorHitNumbers,
-              int min_tpc_hits) {
+              int min_tpc_hits,
+              double max_abs_z0) {
   
   SelectedTracks selected_tracks_and_states;
 
@@ -320,7 +323,7 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
       continue;
     }
 
-    // component 2 of subdetectorHitNumbers is the TPC; a track without it counts as zero hits
+    // TPC hits = component 2 of subdetectorHitNumbers
     const size_t tpc_index = track.subdetectorHitNumbers_begin + 2;
     const int n_tpc_hits = (tpc_index < track.subdetectorHitNumbers_end &&
                             tpc_index < subdetectorHitNumbers.size())
@@ -345,6 +348,9 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
 
       // Reminder covMatrix convention: https://bib-pubdb1.desy.de/record/81214/files/LC-DET-2006-004%5B1%5D.pdf, sec 5
       if (!perigeeCovPositiveDefinite(trackstate.covMatrix)) {
+        continue;
+      }
+      if (std::abs(trackstate.Z0) > max_abs_z0) {
         continue;
       }
       

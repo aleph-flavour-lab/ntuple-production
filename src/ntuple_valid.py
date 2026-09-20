@@ -207,7 +207,7 @@ def main():
         "run":("runNumber", "run_number"),
         "event":("eventNumber", "event_number"),
         # input track collections (what goes INTO the primary vertex fit).
-        # These should agree in every event (n_tracks_sel only with --noTPCHitCut) - if they
+        # These should agree in every event (n_tracks_sel only with --oldTrackSel) - if they
         # don't, the disagreement is upstream of the vertex fit and nothing below is meaningful.
         "n_tracks_all":("Event_nTracks", "n_tracks_all"),
         "n_selected_tracks":("Event_nSelectedTracks", "n_tracks_sel"),
