@@ -278,7 +278,28 @@ struct SelectedTracks {
 
 constexpr int kTrackMinTPCHits = 4;
 
-/// Base track selection: chi2/ndf <= 10, finite positive d0/phi/z0 perigee variances and at least `min_tpc_hits` TPC hits.
+/// True if the 5x5 perigee block (d0, phi, omega, z0, tanLambda) of a lower-triangular packed covariance is finite and positive definite.
+template <typename Cov>
+bool perigeeCovPositiveDefinite(const Cov& cov) {
+  double L[5][5] = {};
+  for (int i = 0; i < 5; ++i) {
+    for (int j = 0; j <= i; ++j) {
+      const double a = cov[i * (i + 1) / 2 + j];
+      if (!std::isfinite(a)) return false;
+      double s = a;
+      for (int k = 0; k < j; ++k) s -= L[i][k] * L[j][k];
+      if (i == j) {
+        if (!(s > 0.)) return false;
+        L[i][i] = std::sqrt(s);
+      } else {
+        L[i][j] = s / L[j][j];
+      }
+    }
+  }
+  return true;
+}
+
+/// Base track selection: chi2/ndf <= 10, a finite positive-definite perigee covariance and at least `min_tpc_hits` TPC hits.
 SelectedTracks
 select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
               const ROOT::VecOps::RVec<edm4hep::TrackState>& trackstates_in,
@@ -322,14 +343,8 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
 
       const auto& trackstate = trackstates_in[track_state_index];
 
-      // Make sure covariance Matrix is positive definite
       // Reminder covMatrix convention: https://bib-pubdb1.desy.de/record/81214/files/LC-DET-2006-004%5B1%5D.pdf, sec 5
-      const auto& cov_matrix = trackstate.covMatrix;
-
-      if (cov_matrix[0] <= 1e-12 || cov_matrix[2] <= 1e-12 || cov_matrix[9] <= 1e-12) {
-        continue;
-      }
-      if (!std::isfinite(cov_matrix[0]) || !std::isfinite(cov_matrix[2]) || !std::isfinite(cov_matrix[9])) {
+      if (!perigeeCovPositiveDefinite(trackstate.covMatrix)) {
         continue;
       }
       
