@@ -350,7 +350,7 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
       if (!perigeeCovPositiveDefinite(trackstate.covMatrix)) {
         continue;
       }
-      if (std::abs(trackstate.Z0) > max_abs_z0) {
+      if (!(std::abs(trackstate.Z0) <= max_abs_z0)) {
         continue;
       }
       
