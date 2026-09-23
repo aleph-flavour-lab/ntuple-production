@@ -188,6 +188,10 @@ The standard chain also writes the legacy secondary-vertex block `sv_*` (`get_SV
 - **`sv_thetarel`, `sv_phirel`, `v0_thetarel`, `v0_phirel`** compare the jet direction with the absolute vertex position (seen from the coordinate origin), not with the flight direction from the primary vertex. They are distorted by the primary-vertex position and, in data only, by the beamspot offset; take the flight direction from `sv_dx/dy/dz` instead.
 - **Job logs.** The fork's vertex fit, used by every finder here, silences the standard output around each fit by redirecting it, which is not thread-safe: a multi-threaded job can lose the rest of its log, including the final fccanalysis summary. The output file is not affected; its `eventsProcessed` and `eventsSelected` parameters hold the event counts.
 
+### Secondary vertices
+
+The secondary vertices of the standard chain (`get_SV_event_ALEPH`, assigned to the jets: the `sv_*` block) carry their vertex-fit position covariance `sv_cov_xx`, `_yx`, `_yy`, `_zx`, `_zy`, `_zz` (packed lower triangle, cm²), nested per jet like the other `sv_*` branches and in the component order of `Vertex_refit_cov_*`.
+
 ### The φ→K⁺K⁻ finder
 
 Standalone φ(1020)→K⁺K⁻ reconstruction in [`analyzer_phikk.h`](analyzer_phikk.h), on by default and skipped with `--noPhiKK` (`phikk_*` branches). It is an extension of the standalone V0 machinery, intended to deliver a **kinematically tagged kaon sample for dE/dx calibration** — so **no dE/dx quantity enters any selection**; the daughters' dE/dx measurements are stored, never cut on.
