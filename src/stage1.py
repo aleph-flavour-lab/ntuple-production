@@ -86,6 +86,31 @@ V0N_LEG_TAG_DEFINES = (
     ("nTPC", "FCCAnalyses::AlephTrkAux::subdetHits({pfx}_origIdx, Tracks.subdetectorHitNumbers_begin, Tracks.subdetectorHitNumbers_end, _Tracks_subdetectorHitNumbers, 2)"),
 )
 
+# SV-module branches (branch suffix, Define expression); per candidate, in event order:
+SVN_CAND_DEFINES = (
+    ("mass",        "SVs_svn.invM"),
+    ("chi2",        "FCCAnalyses::AlephTruth::candChi2(SVs_svn)"),
+    ("dxyz",        "FCCAnalyses::AlephTruth::candDxyz(SVs_svn, VertexObject_looseBS)"),
+    ("dx",          "FCCAnalyses::AlephSVNew::candDcomp(SVs_svn, VertexObject_looseBS, 0)"),
+    ("dy",          "FCCAnalyses::AlephSVNew::candDcomp(SVs_svn, VertexObject_looseBS, 1)"),
+    ("dz",          "FCCAnalyses::AlephSVNew::candDcomp(SVs_svn, VertexObject_looseBS, 2)"),
+    ("p",           "FCCAnalyses::AlephTruth::candP(SVs_svn)"),
+    ("cosPointing", "FCCAnalyses::AlephTruth::candCosPointing(SVs_svn, VertexObject_looseBS)"),
+    ("pointSig",    "FCCAnalyses::AlephV0New::candPointSig(SVs_svn, VertexObject_looseBS)"),
+    ("ntracks",     "FCCAnalyses::AlephSVNew::candNtracks(SVs_svn)"),
+    ("sigL",        "FCCAnalyses::AlephSVNew::candSigL(SVs_svn)"),
+    ("cov_xx",      "FCCAnalyses::AlephV0New::candCovComp(SVs_svn, 0)"),
+    ("cov_yx",      "FCCAnalyses::AlephV0New::candCovComp(SVs_svn, 1)"),
+    ("cov_yy",      "FCCAnalyses::AlephV0New::candCovComp(SVs_svn, 2)"),
+    ("cov_zx",      "FCCAnalyses::AlephV0New::candCovComp(SVs_svn, 3)"),
+    ("cov_zy",      "FCCAnalyses::AlephV0New::candCovComp(SVs_svn, 4)"),
+    ("cov_zz",      "FCCAnalyses::AlephV0New::candCovComp(SVs_svn, 5)"),
+    # per constituent track, flat over the candidates:
+    ("trk_sv",      "FCCAnalyses::AlephSVNew::candTrkSV(SVs_svn)"),
+    ("trk_idx",     "FCCAnalyses::AlephSVNew::candTrkIdx(SVs_svn)"),
+    ("trk_origIdx", "FCCAnalyses::AlephSVNew::candTrkOrigIdx(SVs_svn, sec2origIdx)"),
+)
+
 # phi->KK branch names: single source for the Define chain and the output list
 PHIKK_CAND_BRANCHES = ("invM", "p", "px", "py", "pz", "alpha", "qt", "bandEll",
                        "chi2", "vx", "vy", "vz", "dpv", "dpvSig", "same_sign",
@@ -149,6 +174,8 @@ class Analysis():
                             help='data only: keep every run instead of the data/lumi run list (--excludeRuns still applies).')
         parser.add_argument('--oldV0', action='store_true',
                             help='Legacy V0 only: drop the two-tier V0 module (no v0n_* branches).')
+        parser.add_argument('--oldSV', action='store_true',
+                            help='Drop the secondary-vertex module (no svn_* branches). The legacy sv_* block is unaffected.')
         parser.add_argument('--noV0TagVars', action='store_true',
                             help='Drop the jet-relative V0 tagger inputs (v0n_jetIdx/z/zL/ptRel/... and the per-leg q/p/nTPC). Implied by --oldV0.')
         parser.add_argument('--noPhiKK', action='store_true',
@@ -174,6 +201,7 @@ class Analysis():
 
         self.do_v0new = not self.ana_args.oldV0
         self.do_v0tagvars = self.do_v0new and not self.ana_args.noV0TagVars
+        self.do_svnew = not self.ana_args.oldSV
         self.do_phikk = not self.ana_args.noPhiKK
         self.do_dstar = not self.ana_args.noDstar
 
@@ -290,8 +318,11 @@ class Analysis():
         # V0 daughter branches join through (sec2origIdx index map, candidate
         # getters, vertex-fit glue) carry no truth and run on data too.
         self.include_paths = ["aleph_units.h", "aleph_reco_config.h", "analyzer.h", "analyzer_pvnew.h", "analyzer_truth.h", "analyzer_trkaux.h"]
-        if self.do_v0new:
+        # the SV module reuses the V0 module's candidate getters
+        if self.do_v0new or self.do_svnew:
             self.include_paths.append("analyzer_v0new.h")
+        if self.do_svnew:
+            self.include_paths.append("analyzer_svnew.h")
         if self.do_phikk:
             self.include_paths.append("analyzer_phikk.h")
         if self.do_dstar:
@@ -665,6 +696,25 @@ class Analysis():
                     df = df.Define(f"v0n_{_b}", _e)
                 df = self._define_legs(df, _legs, V0N_LEG_TAG_DEFINES)
 
+        ############################################# Secondary-vertex module #################################################
+        if self.do_svnew:
+            SVNEW = "FCCAnalyses::AlephSVNew"
+            # tight Ks/Lambda daughters are masked; under --oldV0 nothing is
+            if self.do_v0new:
+                v0_mask = f"V0sNew_event, v0n_tight, {SVNEW}::SVN_MASK_MODE"
+            else:
+                v0_mask = f"FCCAnalyses::VertexingUtils::FCCAnalysesV0{{}}, ROOT::VecOps::RVec<int>{{}}, {SVNEW}::SVN_MASK_NONE"
+            seed_expr = f"{SVNEW}::svSeedPass(SecondaryTracks_looseBS, VertexObject_looseBS, {BZ})"
+            svn_expr = f"{SVNEW}::findSVs(SecondaryTracks_looseBS, VertexObject_looseBS, {v0_mask}, {BZ}, SVSeeds_event)"
+            if self.do_pvnew:
+                seed_expr = self._pv_guard(seed_expr, f"{SVNEW}::SVSeeds{{}}")
+                svn_expr = self._pv_guard(svn_expr, "FCCAnalyses::VertexingUtils::FCCAnalysesV0{}")
+            df = df.Define("SVSeeds_event", seed_expr)
+            df = df.Define("SVs_svn", svn_expr)
+            df = df.Define("n_svn_event", "int(SVs_svn.vtx.size())")
+            for _b, _e in SVN_CAND_DEFINES:
+                df = df.Define(f"svn_{_b}", _e)
+
         ############################################# exclusive-finder track auxiliaries ######################################
         if self.do_phikk or self.do_dstar:
             # both finders run on the full baseline-selected track list, joined to the original Tracks by selBaselineOrigIdx
@@ -972,6 +1022,10 @@ class Analysis():
                     f"v0n_{t}_{b}" for t in V0N_TRKS
                     for b, _ in V0N_LEG_TAG_DEFINES
                 ]
+        if self.do_svnew:
+            module_branches += ["n_svn_event"] + [
+                f"svn_{b}" for b, _ in SVN_CAND_DEFINES
+            ]
         if self.do_phikk:
             module_branches += ["n_phikk_event"] + [
                 f"phikk_{b}" for b in PHIKK_CAND_BRANCHES
