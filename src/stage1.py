@@ -799,10 +799,11 @@ class Analysis():
         _ds = ("d0_trkK_origIdx, d0_trkPi_origIdx, dstar_trkK_origIdx, "
                "dstar_trkPi_origIdx, dstar_trkPis_origIdx, dstar_tight"
                if self.do_dstar else ", ".join([_EMPTY] * 6))
+        _svn = "svn_trk_origIdx" if self.do_svnew else _EMPTY
         df = df.Define("trkTags",
                        "FCCAnalyses::AlephTrkAux::trackTags(Tracks.size(), "
                        "selBaselineOrigIdx, prim2origIdx, svTrkIdx, selBaselineOrigIdx, "
-                       f"{_v0}, {_phi}, {_ds})")
+                       f"{_svn}, {_v0}, {_phi}, {_ds})")
         df = df.Define("trk_member", "trkTags.member")
         df = df.Define("trk_nCand",  "trkTags.nCand")
 
