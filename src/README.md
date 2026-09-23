@@ -232,6 +232,8 @@ Per constituent track, flat over the candidates in the same order:
 | `svn_trk_origIdx` | index of the track in the `Tracks` collection, the frame of `v0n_trk{1,2}_origIdx` and `pfcand_trackIdx` | −1 |
 | `svn_trk_idx` | index of the track in the secondary-track collection the finder ran on | — |
 
+**V0 pointing at the secondary vertices.** With both modules on, every V0 candidate also carries its pointing at the nearest `svn` vertex, the one with the largest cosine between the candidate momentum and the vertex→candidate line; vertices sharing a track with the candidate are skipped. Per candidate, in the order of `v0n_pdg`: `v0n_svnCosPoint` (that cosine; −2 when there is no such vertex), `v0n_svnPointSig` (the transverse pointing significance with respect to that vertex, defined as `v0n_pointSig` with the vertex in place of the primary vertex; −1 when there is no such vertex or the covariance is singular) and `v0n_svnIdx` (its index in the `svn_*` arrays; −1 when there is none, the reliable "no vertex" test). They are dropped with either module.
+
 ### The φ→K⁺K⁻ finder
 
 Standalone φ(1020)→K⁺K⁻ reconstruction in [`analyzer_phikk.h`](analyzer_phikk.h), on by default and skipped with `--noPhiKK` (`phikk_*` branches). It is an extension of the standalone V0 machinery, intended to deliver a **kinematically tagged kaon sample for dE/dx calibration** — so **no dE/dx quantity enters any selection**; the daughters' dE/dx measurements are stored, never cut on.

@@ -110,6 +110,9 @@ SVN_CAND_DEFINES = (
     ("trk_idx",     "FCCAnalyses::AlephSVNew::candTrkIdx(SVs_svn)"),
     ("trk_origIdx", "FCCAnalyses::AlephSVNew::candTrkOrigIdx(SVs_svn, sec2origIdx)"),
 )
+# V0 pointing at the svn vertex nearest in angle, per V0 candidate (v0n_pdg order):
+V0N_SVN_DEFINES = (("svnCosPoint", "cosPoint"), ("svnPointSig", "pointSig"),
+                   ("svnIdx", "svIdx"))
 
 # phi->KK branch names: single source for the Define chain and the output list
 PHIKK_CAND_BRANCHES = ("invM", "p", "px", "py", "pz", "alpha", "qt", "bandEll",
@@ -714,6 +717,10 @@ class Analysis():
             df = df.Define("n_svn_event", "int(SVs_svn.vtx.size())")
             for _b, _e in SVN_CAND_DEFINES:
                 df = df.Define(f"svn_{_b}", _e)
+            if self.do_v0new:
+                df = df.Define("v0n_svnpoint", "FCCAnalyses::AlephV0New::candSVPointing(V0sNew_event, SVs_svn, sec2origIdx)")
+                for _b, _m in V0N_SVN_DEFINES:
+                    df = df.Define(f"v0n_{_b}", f"v0n_svnpoint.{_m}")
 
         ############################################# exclusive-finder track auxiliaries ######################################
         if self.do_phikk or self.do_dstar:
@@ -1026,6 +1033,8 @@ class Analysis():
             module_branches += ["n_svn_event"] + [
                 f"svn_{b}" for b, _ in SVN_CAND_DEFINES
             ]
+            if self.do_v0new:
+                module_branches += [f"v0n_{b}" for b, _ in V0N_SVN_DEFINES]
         if self.do_phikk:
             module_branches += ["n_phikk_event"] + [
                 f"phikk_{b}" for b in PHIKK_CAND_BRANCHES
