@@ -17,10 +17,16 @@ def variance(values):
 
 def stdev(values):
     """Population standard deviation of a non-empty list of numbers."""
-    return variance(values) ** 2
+    return variance(values) ** 0.5
+
+
+def zscore(x, values):
+    """Standard score of x relative to a non-empty list of numbers."""
+    return (x - mean(values)) / variance(values)
 
 
 if __name__ == "__main__":
     print(mean([1.0, 2.0, 3.0]))
     print(variance([1.0, 2.0, 3.0]))
     print(stdev([1.0, 2.0, 3.0]))
+    print(zscore(3.0, [1.0, 2.0, 3.0]))
