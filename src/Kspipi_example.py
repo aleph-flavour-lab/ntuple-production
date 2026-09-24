@@ -87,9 +87,9 @@ class Analysis():
         df = df.Define("run_number", "EventHeader.runNumber")
 
         # ---- track selection --------------------------------------------------
-        # baseline: positive-definite covariance and chi2 < 10; .tracks,
+        # baseline: positive-definite covariance, chi2 < 10, TPC hits and |z0|; .tracks,
         # .trackStates and .origIdx (index into Tracks) share one order
-        df = df.Define("tracks_selected_baseline_result", "AlephSelection::select_tracks_baseline(Tracks, _Tracks_trackStates)")
+        df = df.Define("tracks_selected_baseline_result", "AlephSelection::select_tracks_baseline(Tracks, _Tracks_trackStates, _Tracks_subdetectorHitNumbers, AlephSelection::kTrackMinTPCHits, AlephSelection::kTrackMaxAbsZ0)")
         df = df.Define("trackstates_selected_baseline", "tracks_selected_baseline_result.trackStates")
         df = df.Define("selBaselineOrigIdx", "tracks_selected_baseline_result.origIdx")
         # primary-vertex candidates: upper bounds on the impact parameters
