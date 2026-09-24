@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import os
+import run_list
 
 # ============================================
 # --- ROOT / HEP-like Matplotlib Style ---
@@ -58,7 +59,7 @@ files = {
     "LEP1-1994 (Class 16–17)": {"path": "/eos/user/h/hfatehi/D0fliped/Stage1/Znn.root", "type": "data"},
 }
 
-L_data = 57.89  # pb^-1
+L_data = run_list.luminosity_pb(1994)  # pb^-1, runs kept by stage1
 mc_xsec = {
     r"$Z \to b\bar{b}$": 2.81e5,
     r"$Z \to c\bar{c}$": 2.81e5 * 0.8,

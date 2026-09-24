@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import os
 import gc
+import run_list
 
 # ================================================================
 #  PAPER-STYLE PLOTTING (ROOT-like but cleaner)
@@ -57,7 +58,7 @@ stack_order = [
 ]
 
 # Lumi & x-sections
-L_data = 57.89  # pb^-1
+L_data = run_list.luminosity_pb(1994)  # pb^-1, runs kept by stage1
 mc_xsec = {
     r"$Z \to b\bar{b}$": 2.81e5,
     r"$Z \to c\bar{c}$": 2.81e5 * 0.8,
