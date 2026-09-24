@@ -423,6 +423,7 @@ select_tracks_impactparameters_bs(const SelectedTracks& input,
 
         selected.tracks.push_back(track);
         selected.trackStates.push_back(state);
+        selected.origIdx.push_back(input.origIdx[i]);
     }
 
     return selected;
