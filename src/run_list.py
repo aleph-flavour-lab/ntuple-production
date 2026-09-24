@@ -26,15 +26,14 @@ def run_list_file(year):
 
 def load(year):
     """All rows of the year's list, keyed by run number (empty dict if there is no list)."""
-    year = int(year)
-    if year not in _cache:
-        path = run_list_file(year)
+    path = run_list_file(int(year))
+    if path not in _cache:
         rows = {}
         if os.path.exists(path):
             with open(path) as fh:
                 rows = {int(r["run"]): r for r in csv.DictReader(line for line in fh if not line.startswith("#"))}
-        _cache[year] = rows
-    return _cache[year]
+        _cache[path] = rows
+    return _cache[path]
 
 
 def run_luminosities(year, policy=DEFAULT_POLICY):

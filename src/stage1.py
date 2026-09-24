@@ -1,4 +1,5 @@
 
+import hashlib
 import os
 import sys
 from argparse import ArgumentParser
@@ -200,12 +201,15 @@ class Analysis():
             print(f"----> run selection: {'all runs' if kept is None else f'{len(kept)} listed runs'}, {len(excluded)} excluded {sorted(excluded)}")
             if kept is not None:
                 import ROOT
-                if not hasattr(ROOT, "AlephRunList"):
+                runs = ",".join(str(r) for r in sorted(kept))
+                # one declaration per distinct run set
+                ns = "AlephRunList_" + hashlib.sha1(runs.encode()).hexdigest()[:16]
+                if not hasattr(ROOT, ns):
                     ROOT.gInterpreter.Declare(
                         "#include <unordered_set>\n"
-                        "namespace AlephRunList { const std::unordered_set<int> kept{" + ",".join(str(r) for r in sorted(kept)) + "};"
+                        "namespace " + ns + " { const std::unordered_set<int> kept{" + runs + "};"
                         " bool keep(int run) { return kept.count(run) > 0; } }")
-                df = df.Filter("EventHeader.runNumber.size() == 1 && AlephRunList::keep(EventHeader.runNumber[0])", "runList")
+                df = df.Filter(f"EventHeader.runNumber.size() == 1 && {ns}::keep(EventHeader.runNumber[0])", "runList")
             elif excluded:
                 df = df.Filter("EventHeader.runNumber.size() == 1 && " + " && ".join(f"EventHeader.runNumber[0] != {r}" for r in sorted(excluded)), "runList")
             #df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset)   || AlephSelection::sel_class_filter(17)(ClassBitset) ")
