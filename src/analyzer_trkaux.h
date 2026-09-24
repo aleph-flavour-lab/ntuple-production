@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 
 #include <ROOT/RVec.hxx>
@@ -163,9 +164,12 @@ inline RVec<int> rpIndexByTrack(const RVec<Idx>& tracks_begin,
   const size_t n = std::min(tracks_begin.size(), tracks_end.size());
   for (size_t i = 0; i < n; ++i)
     for (size_t k = tracks_begin[i]; k < (size_t)tracks_end[i]; ++k) {
-      if (k >= rpTrackIndex.size()) break;
-      const int t = rpTrackIndex[k];
-      if (t >= 0 && (size_t)t < nTracks && out[t] < 0) out[t] = (int)i;
+      const int t = k < rpTrackIndex.size() ? rpTrackIndex[k] : -1;
+      // out-of-range relation entry = corrupt input: fail loudly
+      if (t < 0 || (size_t)t >= nTracks)
+        throw std::runtime_error(
+            "AlephTrkAux::rpIndexByTrack: RP->Track relation entry out of range");
+      if (out[t] < 0) out[t] = (int)i;
     }
   return out;
 }

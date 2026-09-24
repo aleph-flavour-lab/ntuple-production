@@ -12,12 +12,12 @@ Options after `--`: --doData (no truth branches, data beam spot), --MCflavour N
 (MC only: keep events of one primary quark flavour, 1-5 = d u s c b, default
 all), --beamspotJson PATH (data only).
 
-Reconstruction chain, every Define written out; the constants are the ones
-stage1 uses, named from aleph_units.h (field) and aleph_reco_config.h (track
-preselection, beam-spot widths, chi2):
-    event filter -> track selection -> primary vertex -> secondary tracks
-    -> dE/dx join (wires) -> [MC] track -> generator-particle links
-    -> V0 module:
+Reconstruction chain of stage1's default, every Define written out; the
+constants are the ones stage1 uses, named from aleph_units.h (field) and
+analyzer_pvnew.h (primary-vertex pre-selection and fit):
+    event filter -> track selection -> beam spot -> primary vertex
+    -> secondary tracks -> dE/dx join (wires) -> [MC] track -> generator-particle links
+    -> V0 module, run only when the primary vertex is good (pv_good):
     V0sNew_event      = AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, Bz)   one fit, loose superset
     V0sNewTight_event = AlephV0New::tightV0s(V0sNew_event)   subset copy, no refit
     Ks_event          = AlephV0New::getKs(V0sNewTight_event)
@@ -72,8 +72,8 @@ class Analysis():
             sys.exit("Kspipi_example.py: give the input file(s) with -i and the output file with -o")
         self.n_threads = 16      # -j on the command line overrides
 
-        # aleph_units.h / aleph_reco_config.h carry the constants named below
-        self.include_paths = ["aleph_units.h", "aleph_reco_config.h", "analyzer.h", "analyzer_truth.h", "analyzer_trkaux.h", "analyzer_v0new.h"]
+        # aleph_units.h / analyzer_pvnew.h carry the constants named below
+        self.include_paths = ["aleph_units.h", "analyzer.h", "analyzer_pvnew.h", "analyzer_truth.h", "analyzer_trkaux.h", "analyzer_v0new.h"]
 
     def analyzers(self, df):
 
@@ -87,22 +87,15 @@ class Analysis():
         df = df.Define("run_number", "EventHeader.runNumber")
 
         # ---- track selection --------------------------------------------------
-        # baseline: positive-definite covariance and chi2 < 10; .tracks,
+        # baseline: positive-definite covariance, chi2 < 10, TPC hits and |z0|; .tracks,
         # .trackStates and .origIdx (index into Tracks) share one order
-        df = df.Define("tracks_selected_baseline_result", "AlephSelection::select_tracks_baseline(Tracks, _Tracks_trackStates)")
+        df = df.Define("tracks_selected_baseline_result", "AlephSelection::select_tracks_baseline(Tracks, _Tracks_trackStates, _Tracks_subdetectorHitNumbers, AlephSelection::kTrackMinTPCHits, AlephSelection::kTrackMaxAbsZ0)")
         df = df.Define("trackstates_selected_baseline", "tracks_selected_baseline_result.trackStates")
         df = df.Define("selBaselineOrigIdx", "tracks_selected_baseline_result.origIdx")
-        # primary-vertex candidates: upper bounds on the impact parameters
-        df = df.Define("tracks_selected_for_vertexfit_result",
-                       "AlephSelection::select_tracks_impactparameters(tracks_selected_baseline_result, FCCAnalyses::AlephReco::kPVTrackD0Max, FCCAnalyses::AlephReco::kPVTrackZ0Max)")
-        df = df.Define("trackstates_selected_for_vertexfit", "tracks_selected_for_vertexfit_result.trackStates")
-        # the vertex fitter wants d0 and omega with the opposite sign
-        df = df.Define("trackstates_selected_for_vertexfit_flipped", "AlephSelection::flipD0_copy(trackstates_selected_for_vertexfit)")
-        df = df.Define("trackstates_selected_baseline_flipped", "AlephSelection::flipD0_copy(trackstates_selected_baseline)")
 
         # ---- beam spot ----------------------------------------------------------
         # MC: at the origin by construction. Data: per-run position from the
-        # JSON, in the 10 um units of the constraint widths.
+        # JSON, in 10 um units, converted to cm below.
         if self.ana_args.doData:
             df = df.Define("BeamspotVec", f'AlephSelection::get_beamspot(run_number[0], true, "{self.ana_args.beamspotJson}")')
             df = df.Define("Beamspot_x", "BeamspotVec.X()")
@@ -112,22 +105,26 @@ class Analysis():
             df = df.Define("Beamspot_x", "0.0")
             df = df.Define("Beamspot_y", "0.0")
             df = df.Define("Beamspot_z", "0.0")
+        df = df.Define("Beamspot_x_cm", "Beamspot_x*1e-3")
+        df = df.Define("Beamspot_y_cm", "Beamspot_y*1e-3")
+        df = df.Define("Beamspot_z_cm", "Beamspot_z*1e-3")
 
         # ---- primary vertex ---------------------------------------------------
-        # beam-spot-constrained fit; the widths are handed over in the fitter's
-        # 10 um unit (see aleph_reco_config.h). Fewer than 2 candidate tracks =
-        # no primary vertex: no primary tracks, the fit below then returns the
-        # default vertex at the origin (it does not fit fewer than two tracks
-        # and does not apply the beam-spot constraint).
+        # candidates: upper bounds on the impact parameters w.r.t. the beam spot
+        df = df.Define("tracks_selected_for_vertexfit_result",
+                       "AlephSelection::select_tracks_impactparameters_bs(tracks_selected_baseline_result, FCCAnalyses::AlephPVNew::PVN_D0_MAX, FCCAnalyses::AlephPVNew::PVN_Z0_MAX, Beamspot_x_cm, Beamspot_y_cm, Beamspot_z_cm)")
+        df = df.Define("trackstates_selected_for_vertexfit", "tracks_selected_for_vertexfit_result.trackStates")
+        # the vertex fitter wants d0 and omega with the opposite sign
+        df = df.Define("trackstates_selected_for_vertexfit_flipped", "AlephSelection::flipD0_copy(trackstates_selected_for_vertexfit)")
+        df = df.Define("trackstates_selected_baseline_flipped", "AlephSelection::flipD0_copy(trackstates_selected_baseline)")
+        # beam-spot-constrained fit that prunes the incompatible tracks;
+        # pv_good = converged, fully pruned and supported by at least two tracks
+        df = df.Define("PVSelNew", "FCCAnalyses::AlephPVNew::select_primary_tracks(trackstates_selected_for_vertexfit_flipped, "
+                                   "FCCAnalyses::AlephPVNew::beamSpot(Beamspot_x_cm, Beamspot_y_cm, Beamspot_z_cm))")
+        df = df.Define("pv_good", "int(FCCAnalyses::AlephPVNew::goodPV(PVSelNew))")
         df = df.Define("RecoedPrimaryTracks_looseBS",
-                       "trackstates_selected_for_vertexfit_flipped.size() < 2 ? ROOT::VecOps::RVec<edm4hep::TrackState>{} : "
-                       "VertexFitterSimple::get_PrimaryTracks(trackstates_selected_for_vertexfit_flipped, true, "
-                       "FCCAnalyses::AlephReco::kBeamSigmaXFit, FCCAnalyses::AlephReco::kBeamSigmaYFit, FCCAnalyses::AlephReco::kBeamSigmaZFit, "
-                       "Beamspot_x, Beamspot_y, Beamspot_z, FCCAnalyses::AlephReco::kPVChi2Max)")
-        df = df.Define("VertexObject_looseBS",
-                       "VertexFitterSimple::VertexFitter_Tk(1, RecoedPrimaryTracks_looseBS, true, "
-                       "FCCAnalyses::AlephReco::kBeamSigmaXFit, FCCAnalyses::AlephReco::kBeamSigmaYFit, FCCAnalyses::AlephReco::kBeamSigmaZFit, "
-                       "Beamspot_x, Beamspot_y, Beamspot_z)")
+                       "FCCAnalyses::AlephPVNew::primaryTracksFromSel(trackstates_selected_for_vertexfit_flipped, PVSelNew, Beamspot_x_cm, Beamspot_y_cm, Beamspot_z_cm)")
+        df = df.Define("VertexObject_looseBS", "FCCAnalyses::AlephPVNew::toFCCVertex(PVSelNew)")
 
         # ---- secondary tracks -------------------------------------------------
         # every baseline track not used by the primary vertex; sec2origIdx maps
@@ -147,7 +144,8 @@ class Analysis():
             df = df.Define("trackToMCs", "FCCAnalyses::AlephTruth::buildTrackToMCs(Tracks.size(), _trackMCLink_from, _trackMCLink_to)")
 
         # ---- V0 module --------------------------------------------------------
-        df = df.Define("V0sNew_event",      "FCCAnalyses::AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, FCCAnalyses::AlephUnits::kBz)")
+        df = df.Define("V0sNew_event",      "pv_good ? FCCAnalyses::AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, FCCAnalyses::AlephUnits::kBz) "
+                                            ": FCCAnalyses::AlephV0New::V0Collection{}")
         df = df.Define("V0sNewTight_event", "FCCAnalyses::AlephV0New::tightV0s(V0sNew_event)")
         df = df.Define("Ks_event",          "FCCAnalyses::AlephV0New::getKs(V0sNewTight_event)")
         df = df.Define("Lambda_event",      "FCCAnalyses::AlephV0New::getLambda(V0sNewTight_event)")

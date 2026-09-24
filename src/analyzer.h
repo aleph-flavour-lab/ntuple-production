@@ -25,6 +25,7 @@
 #include "edm4hep/EventHeaderCollection.h"
 #include <bitset>
 #include <cmath>
+#include <limits>
 #include <vector>
 #include <map>
 #include <mutex>
@@ -280,10 +281,37 @@ struct SelectedTracks {
 };
 
 
-// Base track selection
+constexpr int kTrackMinTPCHits = 4;
+constexpr double kTrackMaxAbsZ0 = 50.;  // cm
+
+/// True if the 5x5 perigee block (d0, phi, omega, z0, tanLambda) of a lower-triangular packed covariance is finite and positive definite.
+template <typename Cov>
+bool perigeeCovPositiveDefinite(const Cov& cov) {
+  double L[5][5] = {};
+  for (int i = 0; i < 5; ++i) {
+    for (int j = 0; j <= i; ++j) {
+      const double a = cov[i * (i + 1) / 2 + j];
+      if (!std::isfinite(a)) return false;
+      double s = a;
+      for (int k = 0; k < j; ++k) s -= L[i][k] * L[j][k];
+      if (i == j) {
+        if (!(s > 0.)) return false;
+        L[i][i] = std::sqrt(s);
+      } else {
+        L[i][j] = s / L[j][j];
+      }
+    }
+  }
+  return true;
+}
+
+/// Base track selection: chi2/ndf <= 10, a finite positive-definite perigee covariance, at least `min_tpc_hits` TPC hits and |z0| <= `max_abs_z0`.
 SelectedTracks
 select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
-              const ROOT::VecOps::RVec<edm4hep::TrackState>& trackstates_in) {
+              const ROOT::VecOps::RVec<edm4hep::TrackState>& trackstates_in,
+              const ROOT::VecOps::RVec<int>& subdetectorHitNumbers,
+              int min_tpc_hits,
+              double max_abs_z0) {
   
   SelectedTracks selected_tracks_and_states;
 
@@ -301,6 +329,15 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
       continue;
     }
 
+    // TPC hits = component 2 of subdetectorHitNumbers
+    const size_t tpc_index = track.subdetectorHitNumbers_begin + 2;
+    const int n_tpc_hits = (tpc_index < track.subdetectorHitNumbers_end &&
+                            tpc_index < subdetectorHitNumbers.size())
+                               ? subdetectorHitNumbers[tpc_index] : 0;
+    if (n_tpc_hits < min_tpc_hits){
+      continue;
+    }
+
     // now we need to get the track state to check the other variables:
     auto n_trackstates = track.trackStates_end - track.trackStates_begin;
     // std::cout << n_trackstates << std::endl;
@@ -315,14 +352,11 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
 
       const auto& trackstate = trackstates_in[track_state_index];
 
-      // Make sure covariance Matrix is positive definite
       // Reminder covMatrix convention: https://bib-pubdb1.desy.de/record/81214/files/LC-DET-2006-004%5B1%5D.pdf, sec 5
-      const auto& cov_matrix = trackstate.covMatrix;
-
-      if (cov_matrix[0] <= 1e-12 || cov_matrix[2] <= 1e-12 || cov_matrix[9] <= 1e-12) {
+      if (!perigeeCovPositiveDefinite(trackstate.covMatrix)) {
         continue;
       }
-      if (!std::isfinite(cov_matrix[0]) || !std::isfinite(cov_matrix[2]) || !std::isfinite(cov_matrix[9])) {
+      if (!std::isfinite(trackstate.Z0) || std::abs(trackstate.Z0) > max_abs_z0) {
         continue;
       }
       
@@ -351,6 +385,41 @@ select_tracks_impactparameters(const SelectedTracks& input,
 
         if (std::abs(state.D0) > d0_upper_bound) continue;
         if (std::abs(state.Z0) > z0_upper_bound) continue;
+
+        selected.tracks.push_back(track);
+        selected.trackStates.push_back(state);
+        selected.origIdx.push_back(input.origIdx[i]);
+    }
+
+    return selected;
+}
+
+
+// same window, |D0| and |Z0| referenced to the beamspot b [cm]; raw states: d0 = -D0*n, dphi/ds = +omega
+SelectedTracks
+select_tracks_impactparameters_bs(const SelectedTracks& input,
+                                  float d0_upper_bound,
+                                  float z0_upper_bound,
+                                  float bsx,
+                                  float bsy,
+                                  float bsz)
+{
+    SelectedTracks selected;
+
+    for (size_t i = 0; i < input.tracks.size(); ++i) {
+
+        const auto& track = input.tracks[i];
+        const auto& state = input.trackStates[i];
+
+        const double cphi = std::cos(state.phi);
+        const double sphi = std::sin(state.phi);
+
+        const double s   = bsx * cphi + bsy * sphi;
+        const double d0p = state.D0 - bsx * sphi + bsy * cphi - 0.5 * state.omega * s * s;
+        const double z0p = state.Z0 - bsz + state.tanLambda * s;
+
+        if (std::abs(d0p) > d0_upper_bound) continue;
+        if (std::abs(z0p) > z0_upper_bound) continue;
 
         selected.tracks.push_back(track);
         selected.trackStates.push_back(state);
