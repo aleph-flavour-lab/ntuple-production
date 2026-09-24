@@ -191,7 +191,7 @@ The standard chain also writes the legacy secondary-vertex block `sv_*` (`get_SV
 
 ### Secondary vertices
 
-The secondary vertices of the standard chain (`get_SV_event_ALEPH`, assigned to the jets: the `sv_*` block) carry their vertex-fit position covariance `sv_cov_xx`, `_yx`, `_yy`, `_zx`, `_zy`, `_zz` (packed lower triangle, cm²), nested per jet like the other `sv_*` branches and in the component order of `Vertex_refit_cov_*`.
+The secondary vertices of the standard chain (`get_SV_event_ALEPH`, assigned to the jets: the `sv_*` block) carry their vertex-fit position covariance `sv_cov_xx`, `_yx`, `_yy`, `_zx`, `_zy`, `_zz` (packed lower triangle, cm²), nested per jet like the other `sv_*` branches and in the component order of `Vertex_refit_cov_*`. Their constituent tracks are listed per jet, the tracks of the jet's vertices in vertex order: `sv_trk_sv` is the index of the track's vertex within the jet (the inner index of the other `sv_*` branches) and `sv_trk_origIdx` the index of the track in the `Tracks` collection, the frame of `svn_trk_origIdx` and `pfcand_trackIdx` (−1 if unmapped).
 
 ### The secondary-vertex module
 

@@ -629,6 +629,8 @@ class Analysis():
         # vertex-fit covariance [cm^2]
         for ic, cc in enumerate(("xx", "yx", "yy", "zx", "zy", "zz")):
             df = df.Define(f"sv_cov_{cc}", f"FCCAnalyses::AlephSelection::svCovComp(sv_jets, {ic})")
+        df = df.Define("sv_trk_sv",      "FCCAnalyses::AlephSelection::svTrkSV(sv_jets)")
+        df = df.Define("sv_trk_origIdx", "FCCAnalyses::AlephSelection::svTrkOrigIdx(sv_jets, selBaselineOrigIdx)")
 
         ############################################# V0 Reconstruction #######################################################
         v0_expr = ("FCCAnalyses::AlephSelection::get_V0s_ALEPH("
@@ -1137,6 +1139,8 @@ class Analysis():
             "sv_cov_zx",
             "sv_cov_zy",
             "sv_cov_zz",
+            "sv_trk_sv",
+            "sv_trk_origIdx",
 
             # V0 candidates:
             "n_v0_event",

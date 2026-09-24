@@ -1428,6 +1428,38 @@ svCovComp(
     return result;
 }
 
+// SV constituent tracks per jet, in SV order: svTrkSV = SV index within the jet, svTrkOrigIdx =
+// index in Tracks via sel2orig, the map of the finder's all_tracks list (-1 if unmapped).
+inline ROOT::VecOps::RVec<ROOT::VecOps::RVec<int>>
+svTrkSV(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<VertexingUtils::FCCAnalysesVertex>>& sv_jets)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<int>> result;
+    for (const auto& jet : sv_jets) {
+        ROOT::VecOps::RVec<int> row;
+        for (size_t i = 0; i < jet.size(); ++i)
+            for (size_t k = 0; k < jet[i].reco_ind.size(); ++k) row.push_back(int(i));
+        result.push_back(row);
+    }
+    return result;
+}
+
+inline ROOT::VecOps::RVec<ROOT::VecOps::RVec<int>>
+svTrkOrigIdx(
+    const ROOT::VecOps::RVec<ROOT::VecOps::RVec<VertexingUtils::FCCAnalysesVertex>>& sv_jets,
+    const ROOT::VecOps::RVec<int>& sel2orig)
+{
+    ROOT::VecOps::RVec<ROOT::VecOps::RVec<int>> result;
+    for (const auto& jet : sv_jets) {
+        ROOT::VecOps::RVec<int> row;
+        for (const auto& v : jet)
+            for (int t : v.reco_ind)
+                row.push_back((t >= 0 && t < int(sel2orig.size())) ? sel2orig[t] : -1);
+        result.push_back(row);
+    }
+    return result;
+}
+
 // SV displacement from PV in lab frame x/y/z [cm], per jet
 ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
 get_dx_SV_jets(
