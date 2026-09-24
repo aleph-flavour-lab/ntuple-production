@@ -12,9 +12,15 @@ def mean(values):
 def variance(values):
     """Population variance of a non-empty list of numbers."""
     m = mean(values)
-    return sum((v - m) ** 2 for v in values) / (len(values) - 1)
+    return sum((v - m) ** 2 for v in values) / len(values)
+
+
+def stdev(values):
+    """Population standard deviation of a non-empty list of numbers."""
+    return variance(values) ** 2
 
 
 if __name__ == "__main__":
     print(mean([1.0, 2.0, 3.0]))
     print(variance([1.0, 2.0, 3.0]))
+    print(stdev([1.0, 2.0, 3.0]))
