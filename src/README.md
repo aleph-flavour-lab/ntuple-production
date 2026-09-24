@@ -168,7 +168,7 @@ The PV fit covariance `Vertex_refit_cov_xx`, `_yx`, `_yy`, `_zx`, `_zy`, `_zz` (
 
 | flag | meaning |
 | --- | --- |
-| `--oldPV` | legacy PV chain, unchanged from before this module: `get_PrimaryTracks` + `VertexFitter_Tk`, with the origin-referenced `|D0| < 0.75 cm`, `|Z0| < 2 cm` pre-selection instead of the beamspot-referenced one. No `pv_*` flag branches; every other branch is bit-identical to the pre-module output, with the covariance and chi2 branches above added. Note that the beamspot constraint of the `get_PrimaryTracks` selection fit is passed in 10 µm units while its track parameters are read in cm, so that constraint is off by a factor 1000 and is effectively absent; the final `VertexFitter_Tk` fit is unaffected. Its beamspot widths and its track-compatibility cut are spelled as literals in `stage1.py` and are the same numbers as `PVN_BS_SIGMA_X/Y/Z` and `PVN_CHI2_MAX`. |
+| `--oldPV` | legacy PV chain, unchanged from before this module: `get_PrimaryTracks` + `VertexFitter_Tk`, with the origin-referenced `|D0| < 0.75 cm`, `|Z0| < 2 cm` pre-selection instead of the beamspot-referenced one. No `pv_*` flag branches; every other branch is bit-identical to the pre-module output, with the covariance and chi2 branches above added. Note that the beamspot constraint of the `get_PrimaryTracks` selection fit is passed in 10 µm units while its track parameters are read in cm, so that constraint is off by a factor 1000 and is effectively absent; the final `VertexFitter_Tk` fit is unaffected. Its pre-selection window, beamspot widths and track-compatibility cut are the named constants of [`aleph_reco_config.h`](aleph_reco_config.h); the widths and the cut are the same numbers as `PVN_BS_SIGMA_X/Y/Z` and `PVN_CHI2_MAX`. |
 
 ### Run on batch:
 ```
