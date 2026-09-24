@@ -26,6 +26,8 @@
 #include "edm4hep/EDM4hepVersion.h"
 #include "FCCAnalyses/VertexingUtils.h"
 
+#include "aleph_reco_config.h"
+
 namespace FCCAnalyses {
 namespace AlephPVNew {
 
@@ -38,16 +40,17 @@ using Mat5 = Eigen::Matrix<double, 5, 5>;
 using Mat35 = Eigen::Matrix<double, 3, 5>;
 
 // chi2max for track/vertex compatibility.
-constexpr double PVN_CHI2_MAX = 5.0;
+constexpr double PVN_CHI2_MAX = AlephReco::kPVChi2Max;
 
-// track pre-selection window on the impact parameters, cm
-constexpr double PVN_D0_MAX = 0.75;
+// track pre-selection window on the impact parameters, cm; the z window is
+// wider than the legacy chain's kPVTrackZ0Max
+constexpr double PVN_D0_MAX = AlephReco::kPVTrackD0Max;
 constexpr double PVN_Z0_MAX = 5.0;
 
 // beam-spot constraint widths, physical cm
-constexpr double PVN_BS_SIGMA_X = 0.02;
-constexpr double PVN_BS_SIGMA_Y = 0.01;
-constexpr double PVN_BS_SIGMA_Z = 2.0;
+constexpr double PVN_BS_SIGMA_X = AlephReco::kBeamSigmaX_um / 1e4;
+constexpr double PVN_BS_SIGMA_Y = AlephReco::kBeamSigmaY_um / 1e4;
+constexpr double PVN_BS_SIGMA_Z = AlephReco::kBeamSigmaZ_cm;
 
 // Gaussian luminous-region constraint, physical cm; the widths have no defaults.
 struct BeamSpot {
