@@ -629,7 +629,10 @@ class Analysis():
 
         ############################################# Standalone two-tier V0 module ###########################################
         if self.do_v0new:
-            df = df.Define("V0sNew_event", f"FCCAnalyses::AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, {BZ})")
+            v0n_expr = f"FCCAnalyses::AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, {BZ})"
+            if self.do_pvnew:
+                v0n_expr = self._pv_guard(v0n_expr, "FCCAnalyses::AlephV0New::V0Collection{}")
+            df = df.Define("V0sNew_event", v0n_expr)
             df = df.Define("n_v0n_event",  "int(V0sNew_event.vtx.size())")
             for _b, _e in V0N_CAND_DEFINES:
                 df = df.Define(f"v0n_{_b}", _e)
