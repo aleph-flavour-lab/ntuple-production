@@ -380,10 +380,10 @@ inline void pushTrk(TrkBlock& b, const RVec<edm4hep::TrackState>& tracks, int k,
   b.q.push_back((tracks[k].omega > 0) ? 1 : -1);
   b.p.push_back(p.Mag());
   b.costheta.push_back(p.Mag() > 0. ? p.Z() / p.Mag() : -99.);
-  // perigee re-referenced to the beamspot; the signs follow the flipped D0/omega
+  // perigee re-referenced to the beamspot; flipped states: perigee at +D0*n, n = (-sin phi, cos phi), dphi/ds = -omega
   const double cphi = std::cos(tracks[k].phi), sphi = std::sin(tracks[k].phi);
   const double s = aux.bsx * cphi + aux.bsy * sphi;
-  b.d0.push_back(tracks[k].D0 + aux.bsx * sphi - aux.bsy * cphi + 0.5 * tracks[k].omega * s * s);
+  b.d0.push_back(tracks[k].D0 + aux.bsx * sphi - aux.bsy * cphi - 0.5 * tracks[k].omega * s * s);
   b.z0.push_back(tracks[k].Z0 - aux.bsz + tracks[k].tanLambda * s);
   b.sigd0.push_back(tracks[k].covMatrix[0] > 0. ? std::sqrt(tracks[k].covMatrix[0]) : -1.);
   b.nvdet.push_back(aux.ival(aux.nvdet, k));
