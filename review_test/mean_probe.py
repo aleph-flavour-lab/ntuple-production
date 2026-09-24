@@ -22,10 +22,17 @@ def stdev(values):
 
 def zscore(x, values):
     """Standard score of x relative to a non-empty list of numbers."""
-    return (x - mean(values)) / variance(values)
+    return (x - mean(values)) / stdev(values)
+
+
+def median(values):
+    """Median of a non-empty list of numbers."""
+    ordered = sorted(values)
+    return ordered[len(ordered) // 2]
 
 
 if __name__ == "__main__":
+    print(median([1.0, 2.0, 3.0, 4.0]))
     print(mean([1.0, 2.0, 3.0]))
     print(variance([1.0, 2.0, 3.0]))
     print(stdev([1.0, 2.0, 3.0]))
