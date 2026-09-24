@@ -705,11 +705,13 @@ class Analysis():
         ############################################# phi(1020) -> K+K- module ################################################
         if self.do_phikk:
             # every selection value is a constant in analyzer_phikk.h
-            df = df.Define("PhiKKCands_event",
-                           "FCCAnalyses::AlephPhiKK::findPhiKK(trackstates_selected_baseline_flipped, "
-                           "selBaselineOrigIdx, trkaux_nvdet, trkaux_nitc, trkaux_chi2ndf, "
-                           f"trkaux_isprim, VertexObject_looseBS, {BZ}, v0n_claimed_orig, "
-                           "Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3)")
+            phikk_expr = ("FCCAnalyses::AlephPhiKK::findPhiKK(trackstates_selected_baseline_flipped, "
+                          "selBaselineOrigIdx, trkaux_nvdet, trkaux_nitc, trkaux_chi2ndf, "
+                          f"trkaux_isprim, VertexObject_looseBS, {BZ}, v0n_claimed_orig, "
+                          "Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3)")
+            if self.do_pvnew:
+                phikk_expr = self._pv_guard(phikk_expr, "FCCAnalyses::AlephPhiKK::PhiKKCands{}")
+            df = df.Define("PhiKKCands_event", phikk_expr)
             df = df.Define("n_phikk_event", "int(PhiKKCands_event.invM.size())")
             for _b in PHIKK_CAND_BRANCHES:
                 df = df.Define(f"phikk_{_b}", f"PhiKKCands_event.{_b}")
@@ -725,11 +727,13 @@ class Analysis():
             # primary/secondary class of every pool track (0 prim / 1 sec / 2 neither)
             df = df.Define("dstar_pool_all", "FCCAnalyses::AlephDstar::poolClass(selBaselineOrigIdx, prim2origIdx, sec2origIdx)")
             # every selection value is a constant in analyzer_dstar.h
-            df = df.Define("DstarCands_event",
-                           "FCCAnalyses::AlephDstar::findDstar(trackstates_selected_baseline_flipped, "
-                           "selBaselineOrigIdx, trkaux_nvdet, trkaux_nitc, trkaux_chi2ndf, "
-                           "trkaux_isprim, dstar_pool_all, VertexObject_looseBS, v0n_claimed_orig, "
-                           f"{BZ}, Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3)")
+            dstar_expr = ("FCCAnalyses::AlephDstar::findDstar(trackstates_selected_baseline_flipped, "
+                          "selBaselineOrigIdx, trkaux_nvdet, trkaux_nitc, trkaux_chi2ndf, "
+                          "trkaux_isprim, dstar_pool_all, VertexObject_looseBS, v0n_claimed_orig, "
+                          f"{BZ}, Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3)")
+            if self.do_pvnew:
+                dstar_expr = self._pv_guard(dstar_expr, "FCCAnalyses::AlephDstar::DstarCands{}")
+            df = df.Define("DstarCands_event", dstar_expr)
             df = df.Define("n_dstar_event", "int(DstarCands_event.ds.kin.m_kpi.size())")
             # two-track fits actually performed: the combinatorial cost
             df = df.Define("n_d0fits_event", "DstarCands_event.nfits")
