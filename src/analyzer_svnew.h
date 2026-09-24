@@ -35,6 +35,8 @@ constexpr double SVN_SIGL_MAX = 0.10;   // maximum vertex sigma along the summed
 constexpr int SVN_MAX_TRK = 8;          // maximum tracks per candidate
 constexpr double SVN_TRK_CHI2 = 5.;     // per-track chi2 contribution cap
 constexpr double SVN_COS_POINT = 0.7;   // minimum cosPointing
+constexpr double SVN_SEED_DR_MAX = 0.8; // seeds: maximum DeltaR between the two tracks
+constexpr double SVN_2TRK_FSIG_MIN = 3.; // 2-track candidates: minimum 3D flight significance
 
 // V0-track masking modes for findSVs
 constexpr int SVN_MASK_NONE = 0;        // mask nothing
@@ -47,6 +49,27 @@ inline double sigmaAlong(const Cov& c, const TVector3& u) {
   double var = c[0] * x * x + c[2] * y * y + c[5] * z * z +
                2. * (c[1] * x * y + c[3] * x * z + c[4] * y * z);
   return (var > 0.) ? std::sqrt(var) : 0.;
+}
+
+// DeltaR of (cos phi, sin phi, tanLambda), as in VertexSeed_best's pre-filter
+inline double trackDeltaR(const edm4hep::TrackState& a, const edm4hep::TrackState& b) {
+  return TVector3(std::cos(a.phi), std::sin(a.phi), a.tanLambda)
+      .DeltaR(TVector3(std::cos(b.phi), std::sin(b.phi), b.tanLambda));
+}
+
+// 3D flight significance of v from PV, summed position covariances; 0 if undefined
+inline double flightSig(const VertexingUtils::FCCAnalysesVertex& v,
+                        const VertexingUtils::FCCAnalysesVertex& PV) {
+  const TVector3 d(v.vertex.position[0] - PV.vertex.position[0],
+                   v.vertex.position[1] - PV.vertex.position[1],
+                   v.vertex.position[2] - PV.vertex.position[2]);
+  const double L = d.Mag();
+  if (!(L > 0.)) return 0.;
+  double C[3][3];
+  AlephTrkAux::sumCovPacked(v.vertex.covMatrix, PV.vertex.covMatrix, C);
+  const TVector3 u = d.Unit();
+  const double s2 = AlephTrkAux::quadFormCov(u, u, C);
+  return s2 > 0. ? L / std::sqrt(s2) : 0.;
 }
 
 struct SVCand {
@@ -97,7 +120,7 @@ inline bool svPassWindows(const VertexingUtils::FCCAnalysesVertex& v,
 
 // Two-track fits of all track pairs, once per event before V0 masking (findSVs filters them)
 struct SVSeeds {
-  std::vector<SVCand> seeds;  // window-passing pairs, (i, j) ascending
+  std::vector<SVCand> seeds;  // window-passing pairs within SVN_SEED_DR_MAX, (i, j) ascending
   std::vector<char> pairok;   // nTr x nTr: the pair fits a common vertex
   int nTr = 0;
 };
@@ -119,6 +142,8 @@ inline SVSeeds svSeedPass(const RVec<edm4hep::TrackState>& np_tracks,
       VertexingUtils::FCCAnalysesVertex v;
       if (!svFitGroup(np_tracks, {i, j}, solenoidBz, group, v)) continue;
       out.pairok[(size_t)i * nTr + j] = out.pairok[(size_t)j * nTr + i] = 1;
+      // growth may still attach tracks at any DeltaR
+      if (trackDeltaR(np_tracks[i], np_tracks[j]) > SVN_SEED_DR_MAX) continue;
       double m;
       if (!svPassWindows(v, pv, m)) continue;
       out.seeds.push_back({v, {i, j}, v.vertex.chi2, m});
@@ -205,6 +230,8 @@ inline VertexingUtils::FCCAnalysesV0 findSVs(
     if (used[pass.seeds[s].trk[0]] || used[pass.seeds[s].trk[1]]) continue;
     const SVCand c = growCand(pass.seeds[s], blocked);
     for (int t : c.trk) { used[t] = true; blocked[t] = true; }
+    // a 2-track candidate dropped here keeps its tracks claimed
+    if (c.trk.size() == 2 && flightSig(c.vtx, PV) <= SVN_2TRK_FSIG_MIN) continue;
     result.vtx.push_back(c.vtx);
     result.pdgAbs.push_back(0);
     result.invM.push_back(c.mass);

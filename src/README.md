@@ -199,13 +199,15 @@ A second secondary-vertex finder, [`analyzer_svnew.h`](analyzer_svnew.h), runs b
 
 **V0 first.** It runs after the two-tier V0 module and removes the daughters of the tight Kₛ/Λ candidates (`v0n_tight == 1`) from the pool, so that a V0 is not booked a second time as a secondary vertex. Under `--oldV0` there are no such candidates and the finder runs on the whole pool.
 
-**Seeds and growth.** Every pair of pool tracks is fitted to a common vertex (`VertexFitter_Tk`) once per event. A pair is *compatible* when its fit passes the vertex-quality requirements below, and it is a *seed* when it passes the candidate requirements as well. Seeds are taken in order of increasing χ²/ndf. A seed whose two tracks are both still free grows one track at a time: of the free tracks compatible with at least one track already in the candidate, the one giving the lowest χ²/ndf of the refitted vertex is attached, as long as the refitted candidate still passes every requirement, up to 8 tracks. The tracks of a finished candidate are then claimed, so a track belongs to at most one `svn` vertex.
+**Seeds and growth.** Every pair of pool tracks is fitted to a common vertex (`VertexFitter_Tk`) once per event. A pair is *compatible* when its fit passes the vertex-quality requirements below, and it is a *seed* when it passes the seed and candidate requirements as well. Seeds are taken in order of increasing χ²/ndf. A seed whose two tracks are both still free grows one track at a time: of the free tracks compatible with at least one track already in the candidate, the one giving the lowest χ²/ndf of the refitted vertex is attached, as long as the refitted candidate still passes every requirement, up to 8 tracks. The tracks of a finished candidate are then claimed, so a track belongs to at most one `svn` vertex.
 
 **Requirements.** Every value is a named constant of the header (`SVN_*`), not configurable from the command line:
 
 - every fit: χ²/ndf < 10 (`SVN_CHI2`), and each track's χ² contribution < 5 (`SVN_TRK_CHI2`);
 - every candidate: distance from the primary vertex between 0.03 and 3 cm (`SVN_DIS_LO`, `SVN_DIS_HI`); cosine between the flight direction and the summed momentum at the vertex > 0.7 (`SVN_COS_POINT`); position uncertainty along the summed momentum < 0.10 cm (`SVN_SIGL_MAX`), which rejects vertices of nearly collinear tracks, unconstrained along the bundle;
-- at most 8 tracks per candidate (`SVN_MAX_TRK`).
+- at most 8 tracks per candidate (`SVN_MAX_TRK`);
+- seeds: ΔR between the two tracks at most 0.8 (`SVN_SEED_DR_MAX`), with ΔR = √(Δη² + Δφ²) of the directions (cos φ, sin φ, tan λ) as in the standard finder's seed pre-filter; growth may attach tracks at any ΔR;
+- 2-track candidates: flight significance > 3 (`SVN_2TRK_FSIG_MIN`), the 3D distance from the primary vertex divided by its uncertainty along the flight direction, from the vertex and primary-vertex position covariances summed; it applies to the finished candidate, whose tracks stay claimed when it is dropped.
 
 Masses use the charged-pion mass for every track. Like the other finders, the module returns no candidate for an event without a good primary vertex (`pv_good == 0`).
 
