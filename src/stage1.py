@@ -1,6 +1,20 @@
 
+import hashlib
 import os
+import sys
 from argparse import ArgumentParser
+# fccanalysis loads this file by path and its batch workers do not inherit PYTHONPATH,
+# so this directory's modules are made importable here.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import run_list
+
+
+def run_number(text):
+    """argparse type: a positive run number"""
+    n = int(text)
+    if n <= 0:
+        raise ValueError(f"run number must be positive: {text}")
+    return n
 
 BZ = "FCCAnalyses::AlephUnits::kBz"  # solenoid field [T]
 
@@ -107,16 +121,27 @@ class Analysis():
                             help='Run tester file only for validation against Lukas ntuples.')
         parser.add_argument('--chunks', default=None, type=int,
                             help='Number of chunks per process/file')
+        parser.add_argument('--excludeRuns', nargs='+', action='extend', default=[], type=run_number, metavar='RUN',
+                            help='data only: drop these run numbers in addition to the run list (eventsProcessed still counts the raw input).')
+        parser.add_argument('--noRunList', action='store_true',
+                            help='data only: keep every run instead of the data/lumi run list (--excludeRuns still applies).')
         parser.add_argument('--oldV0', action='store_true',
                             help='Legacy V0 only: drop the two-tier V0 module (no v0n_* branches).')
         parser.add_argument('--noV0TagVars', action='store_true',
                             help='Drop the jet-relative V0 tagger inputs (v0n_jetIdx/z/zL/ptRel/... and the per-leg q/p/nTPC). Implied by --oldV0.')
         parser.add_argument('--noDedxGate', action='store_true',
                             help='accept every linked dE/dx measurement as valid, i.e. switch off the failed-leg omega sentinel gate; for converters that no longer copy omega into a failed leg.')
+        parser.add_argument('--oldTrackSel', action='store_true',
+                            help='baseline track selection without the minimum-TPC-hits and |z0| requirements, for the vertex fit, the V0 and the secondary vertex finders.')
         # Parse additional arguments not known to the FCCAnalyses parsers
         # All command line arguments know to fccanalysis are provided in the
         # `cmdline_arg` dictionary.
-        self.ana_args, _ = parser.parse_known_args(cmdline_args['remaining'])
+        self.ana_args, unknown = parser.parse_known_args(cmdline_args['remaining'])
+        if unknown:
+            print(f"----> WARNING: unrecognised arguments ignored: {' '.join(unknown)}")
+        if not self.ana_args.doData and (self.ana_args.excludeRuns or self.ana_args.noRunList):
+            print("----> ERROR: --excludeRuns and --noRunList apply to data only (--doData); Monte Carlo has no run list.")
+            sys.exit(1)
 
         self.do_v0new = not self.ana_args.oldV0
         self.do_v0tagvars = self.do_v0new and not self.ana_args.noV0TagVars
@@ -265,6 +290,33 @@ class Analysis():
         }
 
         if self.ana_args.doData:
+            # Run selection from the data/lumi list minus --excludeRuns (--noRunList: every run).
+            # The list is read where the graph is built; $ALEPH_RUN_LIST_<year> overrides its path.
+            excluded = set(self.ana_args.excludeRuns)
+            kept = None
+            if not self.ana_args.noRunList:
+                if not run_list.has_list(self.ana_args.year):
+                    print(f"----> ERROR: no run list for year {self.ana_args.year} ({run_list.run_list_file(self.ana_args.year)}); pass --noRunList to run without one.")
+                    sys.exit(1)
+                kept = run_list.good_runs(self.ana_args.year) - excluded
+                if not kept:
+                    print("----> ERROR: the run list minus --excludeRuns is empty.")
+                    sys.exit(1)
+                print("----> " + run_list.summary(self.ana_args.year, exclude=excluded))
+            print(f"----> run selection: {'all runs' if kept is None else f'{len(kept)} listed runs'}, {len(excluded)} excluded {sorted(excluded)}")
+            if kept is not None:
+                import ROOT
+                runs = ",".join(str(r) for r in sorted(kept))
+                # one declaration per distinct run set
+                ns = "AlephRunList_" + hashlib.sha1(runs.encode()).hexdigest()[:16]
+                if not hasattr(ROOT, ns):
+                    ROOT.gInterpreter.Declare(
+                        "#include <unordered_set>\n"
+                        "namespace " + ns + " { const std::unordered_set<int> kept{" + runs + "};"
+                        " bool keep(int run) { return kept.count(run) > 0; } }")
+                df = df.Filter(f"EventHeader.runNumber.size() == 1 && {ns}::keep(EventHeader.runNumber[0])", "runList")
+            elif excluded:
+                df = df.Filter("EventHeader.runNumber.size() == 1 && " + " && ".join(f"EventHeader.runNumber[0] != {r}" for r in sorted(excluded)), "runList")
             #df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset)   || AlephSelection::sel_class_filter(17)(ClassBitset) ")
             df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset) ")
             df = df.Define("jetPID", "-999")
@@ -315,8 +367,12 @@ class Analysis():
         df = df.Define("ndf_tracks_all","AlephSelection::get_track_ndf( Tracks )") #TODO: use collection here
         df = df.Define("chi2_o_ndf_tracks_all","AlephSelection::get_track_chi2_o_ndf( Tracks )") #TODO: use collection here
         
-        # baseline track selection: positive definite cov matrix & chi2 < 10 
-        df = df.Define("tracks_selected_baseline_result","AlephSelection::select_tracks_baseline( Tracks, _Tracks_trackStates )") #TODO: use collection here
+        # baseline track selection
+        if self.ana_args.oldTrackSel:
+            min_tpc_hits, max_abs_z0 = "0", "std::numeric_limits<double>::infinity()"
+        else:
+            min_tpc_hits, max_abs_z0 = "AlephSelection::kTrackMinTPCHits", "AlephSelection::kTrackMaxAbsZ0"
+        df = df.Define("tracks_selected_baseline_result",f"AlephSelection::select_tracks_baseline( Tracks, _Tracks_trackStates, _Tracks_subdetectorHitNumbers, {min_tpc_hits}, {max_abs_z0} )") #TODO: use collection here
         df = df.Define("tracks_selected_baseline","tracks_selected_baseline_result.tracks") 
         df = df.Define("trackstates_selected_baseline","tracks_selected_baseline_result.trackStates") 
 

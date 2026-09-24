@@ -6,6 +6,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 import os
+import run_list
 
 # ======================================================================
 #  1. LATEX & PLOT CONFIGURATION
@@ -27,7 +28,7 @@ def configure_plots():
 configure_plots()
 
 # Physics Constants
-LUMI, XSEC_ZQQ, N_GEN_TOT = 57.89, 30385.0, 1080986
+LUMI, XSEC_ZQQ, N_GEN_TOT = run_list.luminosity_pb(1994), 30385.0, 1080986  # pb^-1 of the runs kept by stage1
 WEIGHT = (XSEC_ZQQ * LUMI) / N_GEN_TOT
 
 DATA_DIR = "/afs/cern.ch/work/h/hfatehi/Birgit/stage1/data/"
@@ -159,7 +160,7 @@ def plot_variable(var_name):
 
     # Labels outside at height 1.01
     ax1.text(0.0, 1.01, r"\textbf{ALEPH} Archived Data", transform=ax1.transAxes, ha='left', va='bottom')
-    ax1.text(1.0, 1.01, r"$\sqrt{s} = 91.2$ GeV, \ $\mathcal{L} = 57.89 \ \mathrm{pb}^{-1}$", transform=ax1.transAxes, ha='right', va='bottom')
+    ax1.text(1.0, 1.01, r"$\sqrt{s} = 91.2$ GeV, \ $\mathcal{L} = %.2f \ \mathrm{pb}^{-1}$" % LUMI, transform=ax1.transAxes, ha='right', va='bottom')
 
     # Main Plot
     ax1.hist(mc_hists, bins=bins, range=(xmin, xmax), weights=mc_weights, 
