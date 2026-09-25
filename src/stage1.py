@@ -317,6 +317,12 @@ class Analysis():
         track-supported (pv_good, goodPV() in analyzer_pvnew.h)."""
         return f"pv_good ? {expr} : {empty}"
 
+    @staticmethod
+    def _oldpv_guard(expr, empty):
+        """The same under --oldPV: a PV of fewer than kPVMinTracks tracks is the
+        default vertex at the origin (analyzer_trkaux.h)."""
+        return f"VertexObject_looseBS.ntracks >= FCCAnalyses::AlephTrkAux::kPVMinTracks ? {expr} : {empty}"
+
     def analyzers(self, df):
 
         coll = {
@@ -679,6 +685,8 @@ class Analysis():
                           "Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3)")
             if self.do_pvnew:
                 phikk_expr = self._pv_guard(phikk_expr, "FCCAnalyses::AlephPhiKK::PhiKKCands{}")
+            else:
+                phikk_expr = self._oldpv_guard(phikk_expr, "FCCAnalyses::AlephPhiKK::PhiKKCands{}")
             df = df.Define("PhiKKCands_event", phikk_expr)
             df = df.Define("n_phikk_event", "int(PhiKKCands_event.invM.size())")
             for _b in PHIKK_CAND_BRANCHES:
@@ -701,6 +709,8 @@ class Analysis():
                           f"{BZ}, Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3)")
             if self.do_pvnew:
                 dstar_expr = self._pv_guard(dstar_expr, "FCCAnalyses::AlephDstar::DstarCands{}")
+            else:
+                dstar_expr = self._oldpv_guard(dstar_expr, "FCCAnalyses::AlephDstar::DstarCands{}")
             df = df.Define("DstarCands_event", dstar_expr)
             df = df.Define("n_dstar_event", "int(DstarCands_event.ds.kin.m_kpi.size())")
             # two-track fits actually performed: the combinatorial cost
