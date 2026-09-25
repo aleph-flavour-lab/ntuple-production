@@ -313,9 +313,9 @@ class Analysis():
 
     @staticmethod
     def _pv_guard(expr, empty):
-        """Empty-return entry guard on the usable-PV predicate: a finder must
-        not run on a vertex that is not converged, fully pruned, and
-        track-supported (pv_good, goodPV() in analyzer_pvnew.h)."""
+        """Empty-return entry guard on the usable-PV predicate: a finder runs only
+        on a vertex that converged, whose kept tracks are all compatible with it,
+        and that is track-supported (pv_good, goodPV() in analyzer_pvnew.h)."""
         return f"pv_good ? {expr} : {empty}"
 
     @staticmethod

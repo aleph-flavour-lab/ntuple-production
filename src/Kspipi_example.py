@@ -149,7 +149,7 @@ class Analysis():
         df = df.Define("trackstates_selected_for_vertexfit_flipped", "AlephSelection::flipD0_copy(trackstates_selected_for_vertexfit)")
         df = df.Define("trackstates_selected_baseline_flipped", "AlephSelection::flipD0_copy(trackstates_selected_baseline)")
         # beam-spot-constrained fit that prunes the incompatible tracks;
-        # pv_good = converged, fully pruned and supported by at least two tracks
+        # pv_good (goodPV): converged, every kept track compatible, supported by at least two tracks
         df = df.Define("PVSelNew", "FCCAnalyses::AlephPVNew::select_primary_tracks(trackstates_selected_for_vertexfit_flipped, "
                                    "FCCAnalyses::AlephPVNew::beamSpot(Beamspot_x_cm, Beamspot_y_cm, Beamspot_z_cm))")
         df = df.Define("pv_good", "int(FCCAnalyses::AlephPVNew::goodPV(PVSelNew))")

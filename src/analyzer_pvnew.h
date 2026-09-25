@@ -131,6 +131,7 @@ struct PVSelResult {
   PVFitResult fit;          // the fit of the final kept set
   bool split_converged = false;  // every pruning pass converged
   bool trivial = false;  // fewer than min_tracks tracks entered the fit
+  bool floor_incompatible = false;  // pruning stopped at min_tracks with a track >= chi2_max
   int n_passes = 0;
 };
 
@@ -606,11 +607,12 @@ inline PVSelResult select_core(const TrackSet& ts, const BeamSpot* bs,
         imax = static_cast<int>(i);
       }
     }
-    if (imax < 0 || !(cmax >= chi2_max) ||
-        static_cast<int>(keep.size()) - 1 < min_tracks) {
+    const bool at_floor = static_cast<int>(keep.size()) - 1 < min_tracks;
+    if (imax < 0 || !(cmax >= chi2_max) || at_floor) {
       out.kept.assign(keep.begin(), keep.end());
       out.fit = res;
       out.split_converged = true;
+      out.floor_incompatible = at_floor && cmax >= chi2_max;
       return out;
     }
     keep.erase(keep.begin() + imax);
@@ -630,9 +632,10 @@ inline PVSelResult select_primary_tracks(
   return detail::select_core(ts, &bs, chi2_max, cfg, min_tracks);
 }
 
-// True when the PV is usable: fit converged, every pass converged, not trivial.
+// True when the PV is usable: fit converged, every pass converged, not trivial,
+// and every kept track below chi2_max.
 inline bool goodPV(const PVSelResult& sel) {
-  return sel.fit.converged && sel.split_converged && !sel.trivial;
+  return sel.fit.converged && sel.split_converged && !sel.trivial && !sel.floor_incompatible;
 }
 
 // PVSelResult -> FCCAnalysesVertex; cov zeroed unless converged, chi2 = chi2/ndf.
