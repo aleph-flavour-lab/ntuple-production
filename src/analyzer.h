@@ -305,7 +305,7 @@ bool perigeeCovPositiveDefinite(const Cov& cov) {
   return true;
 }
 
-/// Base track selection: chi2/ndf <= 10, a finite positive-definite perigee covariance, at least `min_tpc_hits` TPC hits and |z0| <= `max_abs_z0`.
+/// Base track selection: chi2/ndf <= 10, finite track-state parameters, a finite positive-definite perigee covariance, at least `min_tpc_hits` TPC hits and |z0| <= `max_abs_z0`.
 SelectedTracks
 select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
               const ROOT::VecOps::RVec<edm4hep::TrackState>& trackstates_in,
@@ -354,6 +354,13 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
 
       // Reminder covMatrix convention: https://bib-pubdb1.desy.de/record/81214/files/LC-DET-2006-004%5B1%5D.pdf, sec 5
       if (!perigeeCovPositiveDefinite(trackstate.covMatrix)) {
+        continue;
+      }
+      // later stages find a selected state again by comparing these fields by value, which fails for a NaN
+      if (!std::isfinite(trackstate.D0) || !std::isfinite(trackstate.phi) || !std::isfinite(trackstate.omega) ||
+          !std::isfinite(trackstate.tanLambda) || !std::isfinite(trackstate.time) ||
+          !std::isfinite(trackstate.referencePoint.x) || !std::isfinite(trackstate.referencePoint.y) ||
+          !std::isfinite(trackstate.referencePoint.z)) {
         continue;
       }
       if (!std::isfinite(trackstate.Z0) || std::abs(trackstate.Z0) > max_abs_z0) {
