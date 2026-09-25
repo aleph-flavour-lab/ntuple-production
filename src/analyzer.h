@@ -878,7 +878,7 @@ flipD0_copy(const ROOT::VecOps::RVec<edm4hep::TrackState>& tracks) {
 //
 // Units: the json stores cm. The FCCAnalyses vertex fitters want the beamspot
 // position in the same units as their widths, which we pass as "10 um"
-// (res_x_loose/10. etc. in stage1.py), hence the cm -> 10um factor of 1e3.
+// (kBeamSigma*Fit in aleph_reco_config.h), hence the cm -> 10um factor of 1e3.
 // Pass `in_10um = false` to get plain cm back instead.
 //
 // The json path resolves in this order:
@@ -1400,12 +1400,14 @@ get_SV_event_ALEPH(
                        // FCCAnalyses@3a4de97 VertexSeed_best does isV0(tr_pair, PV, false) -- explicitly
                        // commented "V0 rejection (loose)" -- while the track-level V0rejection_tight uses
                        // tight. Two different tightnesses; we previously had tight in both.
+                       // The fork's loose Ks and Lambda windows are 0.1-1.4 GeV, so any
+                       // well-pointing displaced pair in that mass range is skipped.
     );
 }
 
 // utils for SV properties:
 
-// SV displacement from PV in lab frame x/y/z [mm], per jet
+// SV displacement from PV in lab frame x/y/z [cm], per jet
 ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>>
 get_dx_SV_jets(
     const ROOT::VecOps::RVec<ROOT::VecOps::RVec<FCCAnalysesVertex>>& vertices,

@@ -21,7 +21,7 @@ BZ = "FCCAnalyses::AlephUnits::kBz"  # solenoid field [T]
 # Legacy V0 finder call options; its mass windows live in analyzer_trkaux.h.
 V0_LEGACY_LOOSE_MASS_WINDOW = "true"
 V0_LEGACY_DR_PAIR_CUT = "-1."   # dR preselection on track pairs (<= 0 disables)
-V0_LEGACY_EXCLUSIVE_TRACKS = "true"  # each track in at most one V0
+V0_LEGACY_EXCLUSIVE_TRACKS = "true"  # skips used tracks, except that a booked pair's first track keeps pairing: tracks can be shared
 
 # Per-daughter dE/dx, joined through <prefix>_origIdx and STORED for the
 # calibration, never selected on: the collections to read, in written order.
@@ -103,7 +103,7 @@ PHIKK_TRKS = ("trk1", "trk2")
 PHIKK_TRK_BRANCHES = ("origIdx", "q", "p", "costheta", "d0", "z0", "sigd0",
                       "nvdet", "nitc", "chi2ndf", "isprim")
 
-# D* branch names; the kinematics shared with the internal D0 entry live in the CandKin member
+# D* branch names; those read from the CandKin member (.kin): p/px/py/pz/costheta/xE are the D*'s, the rest the D0's
 CAND_KIN_BRANCHES = ("m_kpi", "p", "px", "py", "pz", "costheta", "xE", "chi2",
                      "vx", "vy", "vz", "dpv", "dpvSig", "cosPoint",
                      "cosThetaStar")
@@ -145,7 +145,7 @@ class Analysis():
                             help='For MC only: filter out events based on truth quark flavours. Default is none. Options: \
                             1 = dd, 2 = uu, 3 = ss, 4 = cc, 5 = bb')
         parser.add_argument('--fraction', default=1.0, type=float,
-                            help='Fraction of events to run, default is 1.0 = 100%')
+                            help='Fraction of events to run, default is 1.0 = 100%%')
         parser.add_argument('--batch', action='store_true', 
                             help='Submit to HTCondor batch')
         parser.add_argument('--valid', action='store_true', 
@@ -167,7 +167,7 @@ class Analysis():
         parser.add_argument('--noDedxGate', action='store_true',
                             help='accept every linked dE/dx measurement as valid, i.e. switch off the failed-leg omega sentinel gate; for converters that no longer copy omega into a failed leg.')
         parser.add_argument('--oldTrackSel', action='store_true',
-                            help='baseline track selection without the minimum-TPC-hits and |z0| requirements, for the vertex fit, the V0 and the secondary vertex finders.')
+                            help='baseline track selection without the minimum-TPC-hits and |z0| requirements, for the vertex fit and every finder (V0, secondary vertex, phi->KK, D*); also changes trk_member bit 9.')
         parser.add_argument('--oldPV', action='store_true',
                             help='Legacy PV chain: get_PrimaryTracks + VertexFitter_Tk and the origin-referenced track pre-selection, instead of the standalone fitter and its beamspot-referenced window (no pv_* flag branches).')
         # Parse additional arguments not known to the FCCAnalyses parsers
@@ -395,7 +395,7 @@ class Analysis():
         ####################################################################################################
         df = df.Define("pjetc", "JetClusteringUtils::set_pseudoJets(RP_px, RP_py, RP_pz, RP_e)")
 
-        # Anti-kt clustering and jet constituents
+        # Exclusive ee_kt (Durham) clustering to exactly 2 jets, E-ordered, E-scheme; jet constituents
         ####################################################################################################
         df = df.Define("_jet", "JetClustering::clustering_ee_kt(2, 2, 1, 0)(pjetc)")
         df = df.Define("jets","JetClusteringUtils::get_pseudoJets(_jet)" )
@@ -488,7 +488,8 @@ class Analysis():
             df = df.Define("Vertex_refit_looseBS", "VertexObject_looseBS.vertex")
             df = df.Define("Vertex_refit_tlv", "pv_good ? TLorentzVector(Vertex_refit_looseBS.position.x, Vertex_refit_looseBS.position.y, Vertex_refit_looseBS.position.z, 0.) : TLorentzVector(Beamspot_x_cm, Beamspot_y_cm, Beamspot_z_cm, 0.)")
         else:
-            # no primary tracks with fewer than 2 pre-selected tracks (get_PrimaryTracks would keep the one)
+            # no primary tracks with fewer than 2 pre-selected tracks (get_PrimaryTracks would keep the one);
+            # with fewer than 2 kept primary tracks, pruning included, VertexFitter_Tk returns the default vertex
             df = df.Define("RecoedPrimaryTracks_looseBS", "trackstates_selected_for_vertexfit_flipped.size() < 2 ? ROOT::VecOps::RVec<edm4hep::TrackState>{{}} : VertexFitterSimple::get_PrimaryTracks(trackstates_selected_for_vertexfit_flipped, true, {},{},{}, Beamspot_x, Beamspot_y, Beamspot_z, {})".format(res_x_loose, res_y_loose, res_z_loose, chi2max))
             df = df.Define("VertexObject_looseBS", "VertexFitterSimple::VertexFitter_Tk(1, RecoedPrimaryTracks_looseBS, true, {},{},{}, Beamspot_x, Beamspot_y, Beamspot_z)".format(res_x_loose, res_y_loose, res_z_loose))
             df = df.Define("Vertex_refit_looseBS", "VertexingUtils::get_VertexData(VertexObject_looseBS)")

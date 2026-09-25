@@ -72,7 +72,7 @@ inline TLorentzVector lorentz(const TVector3& p, double m) {
   return TLorentzVector(p, std::sqrt(p.Mag2() + m * m));
 }
 
-// Kaon helicity angle in the D0 rest frame, w.r.t. the lab D0 flight direction.
+// Kaon helicity angle in the D0 rest frame, w.r.t. the D0 momentum direction in the lab.
 inline double cosThetaStarK(const TVector3& pk, const TVector3& ppi) {
   TLorentzVector k = lorentz(pk, M_K);
   TLorentzVector d = k + lorentz(ppi, M_PICH);
@@ -84,7 +84,8 @@ inline double cosThetaStarK(const TVector3& pk, const TVector3& ppi) {
   return kr.Vect().Dot(d.Vect().Unit()) / kk;
 }
 
-// Kinematics shared by the D0 and D* entries; the vertex is the fitted D0 one.
+// Kinematics block of the D0 and D* entries: p, px, py, pz, costheta and xE are
+// those of the entry (a D* includes the slow pion); the rest are the D0's.
 struct CandKin {
   RVec<float> m_kpi;           // K pi mass at the fitted vertex [GeV]
   RVec<float> p, px, py, pz, costheta, xE;
@@ -127,7 +128,7 @@ inline void reserveKin(CandKin& k, size_t n) {
   k.dpvSig.reserve(n); k.cosPoint.reserve(n); k.cosThetaStar.reserve(n);
 }
 
-// The D0 vertex quantities of one candidate (pmag = |p3|).
+// One entry: p3 and energy of the entry itself, the rest of the D0 (pmag = |p3|).
 inline void pushKin(CandKin& k, double m, const TVector3& p3, double pmag,
                     double energy, double chi2, const TVector3& x, double dpv,
                     float dpvSig, double cosPoint, double cosThetaStar) {

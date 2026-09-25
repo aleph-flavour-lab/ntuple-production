@@ -15,8 +15,9 @@ constexpr double kBeamSigmaX_um = 200.;
 constexpr double kBeamSigmaY_um = 100.;
 constexpr double kBeamSigmaZ_cm = 2.;
 // VertexFitter_Tk scales these widths from um to mm by 1e-3, but the track
-// states here are in cm, so its argument unit is 10 um (get_PrimaryTracks
-// reaches the same unit via 1e-6 on the widths and 1e-3 on the parameters).
+// states here are in cm, so its argument unit is 10 um. get_PrimaryTracks
+// (--oldPV) scales them by the same 1e-3 but also scales the track lengths by
+// 1e-3, so its constraint is 1000x too loose, i.e. effectively absent.
 constexpr double kBeamSigmaXFit = kBeamSigmaX_um / 10.;
 constexpr double kBeamSigmaYFit = kBeamSigmaY_um / 10.;
 constexpr double kBeamSigmaZFit = kBeamSigmaZ_cm * 1e4 / 10.;

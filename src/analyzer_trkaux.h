@@ -99,7 +99,8 @@ inline bool inMask(const std::vector<char>& m, int o) {
   return o >= 0 && (size_t)o < m.size() && m[o] != 0;
 }
 
-// 3D significance of d = x1 - x2 under the summed covariances; -1 if singular.
+// 3D significance of d = x1 - x2 under the summed covariances; -1 if singular,
+// or if the quadratic form is <= 0 or not finite.
 template <typename CovA, typename CovB>
 inline float vertexDistSig(const TVector3& d, const CovA& ca, const CovB& cb) {
   double C[3][3];

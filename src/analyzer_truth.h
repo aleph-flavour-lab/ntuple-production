@@ -86,8 +86,9 @@ inline RVec<int> secondaryToOriginalTrack(
 
 // Event-order candidate kinematics (independent of jet assignment). Same
 // quantities as the VertexingUtils get_d3d_SV / get_chi2_SV / get_pMag_SV /
-// get_x_SV getters, but RVec<float> rather than RVec<double>; get_chi2_SV also
-// divides by the degrees of freedom, which is 1 only for a two-track vertex.
+// get_x_SV getters, but RVec<float> rather than RVec<double>; candChi2 is the
+// normalised chi2 (get_norm_chi2_SV), equal to get_chi2_SV only for a
+// two-track vertex (ndf = 1).
 // candDxyz returns kUndef when the reference vertex has fewer than
 // kPVMinTracks tracks, i.e. is the default vertex at the origin.
 inline RVec<float> candDxyz(const VertexingUtils::FCCAnalysesV0& v0s,
