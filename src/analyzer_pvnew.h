@@ -494,7 +494,7 @@ inline RunResult run_from_seed(const TrackSet& ts, const BeamSpot* bs,
   rr.chi2 = chi2;
   rr.chi2_bs = chi2_bs;
   rr.trk_chi2 = tt.chi2;
-  rr.n_iter = it;
+  rr.n_iter = std::min(it, cfg.max_iter);
   rr.status = status;
   rr.converged = converged;
   rr.condH = condH;
