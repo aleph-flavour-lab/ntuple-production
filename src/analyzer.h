@@ -45,6 +45,7 @@
 #include "FCCAnalyses/VertexingUtils.h"
 #include "FCCAnalyses/VertexFinderLCFIPlus.h" 
 #include "aleph_units.h"
+#include "analyzer_trkaux.h"
 
 #include "TVector3.h"
 
@@ -192,7 +193,7 @@ get_isChargedHad(const rv::RVec<FCCAnalysesJetConstituents>& jcs) {
     FCCAnalysesJetConstituentsData mask;
     mask.reserve(jet.size());
     for (const auto& c : jet)
-      mask.push_back((std::abs(c.charge) > 0 && std::abs(c.mass - 0.13957) < 1e-3) ? 1.f : 0.f);
+      mask.push_back((std::abs(c.charge) > 0 && std::abs(c.mass - AlephMasses::kPiCh) < 1e-3) ? 1.f : 0.f);
     out.push_back(std::move(mask));
   }
   return out;
@@ -274,6 +275,9 @@ get_track_chi2_o_ndf(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in){
 struct SelectedTracks {
   ROOT::VecOps::RVec<edm4hep::TrackData>  tracks;
   ROOT::VecOps::RVec<edm4hep::TrackState> trackStates;
+  // index of each kept entry in the ORIGINAL Tracks collection, same order as
+  // tracks/trackStates
+  ROOT::VecOps::RVec<int>                 origIdx;
 };
 
 
@@ -313,7 +317,9 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
 
   // ROOT::VecOps::RVec<edm4hep::TrackData> tracks_out;
 
-  for (const auto &track : tracks_in) {
+  for (size_t track_index = 0; track_index < tracks_in.size(); ++track_index) {
+
+    const auto &track = tracks_in[track_index];
 
     // track chi2 selection needs to use track object itself 
     if (track.ndf == 0){
@@ -357,6 +363,7 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
       // track and state are stored together so that the two vectors stay index-aligned
       selected_tracks_and_states.trackStates.push_back(trackstate);
       selected_tracks_and_states.tracks.push_back(track);
+      selected_tracks_and_states.origIdx.push_back(int(track_index));
     }
 
   }
@@ -381,6 +388,7 @@ select_tracks_impactparameters(const SelectedTracks& input,
 
         selected.tracks.push_back(track);
         selected.trackStates.push_back(state);
+        selected.origIdx.push_back(input.origIdx[i]);
     }
 
     return selected;
@@ -1269,7 +1277,7 @@ ROOT::VecOps::RVec<edm4hep::TrackState>
 V0rejection_ALEPH(
     const ROOT::VecOps::RVec<edm4hep::TrackState>& np_tracks,
     const FCCAnalysesVertex& PV,
-    double solenoidBz = 1.5,
+    double solenoidBz = AlephUnits::kBz,
     bool inclusive = false)
 {
     int nTr = np_tracks.size();
@@ -1314,7 +1322,7 @@ V0rejection_ALEPH(
     return result;
 }
 
-// SV finding with all ALEPH-specific defaults: 1.5 T field, ALEPH-tuned V0 rejection,
+// SV finding with all ALEPH-specific defaults: the ALEPH field (aleph_units.h), ALEPH-tuned V0 rejection,
 // dR prefilter enabled. Set inclusive_v0=true to match ntuplizer behaviour exactly.
 ROOT::VecOps::RVec<FCCAnalysesVertex>
 get_SV_event_ALEPH(
@@ -1324,12 +1332,12 @@ get_SV_event_ALEPH(
     double dR_cut = 0.8,
     bool inclusive_v0 = false)
 {
-    auto tracks_no_v0 = V0rejection_ALEPH(np_tracks, PV, 1.5, inclusive_v0);
+    auto tracks_no_v0 = V0rejection_ALEPH(np_tracks, PV, AlephUnits::kBz, inclusive_v0);
     return FCCAnalyses::VertexFinderLCFIPlus::get_SV_event(
         tracks_no_v0, all_tracks, PV,
         false,         // V0 rejection already done above with ALEPH constraints
         10., 10., 5., // chi2_cut, invM_cut, chi2Tr_cut
-        1.5,           // solenoidBz [T]
+        AlephUnits::kBz, // solenoidBz [T]
         dR_cut,       // dR_cut for prefiltering
         true,          // require opposite-charge seed pairs (matches FCCAnalyses@3a4de97 VertexSeed_best)
         false          // LOOSE V0 constraints in per-pair seed screening.
@@ -1496,26 +1504,28 @@ FCCAnalyses::VertexingUtils::FCCAnalysesV0
 get_V0s_ALEPH(
     const ROOT::VecOps::RVec<edm4hep::TrackState>& np_tracks,
     const FCCAnalysesVertex& PV,
-    double solenoidBz = 1.5, bool loose_mass_window = false,
+    double solenoidBz = AlephUnits::kBz, bool loose_mass_window = false,
     double dR_pair_cut = -1., bool exclusive_tracks = false)
 {
+  namespace LV0 = FCCAnalyses::AlephLegacyV0;
+  // windows per hypothesis: mass window [GeV], dis_min [cm], cosAng
   if (loose_mass_window){
       return FCCAnalyses::VertexFinderLCFIPlus::get_V0s(
           np_tracks, PV,
-          0.1, 1.4, 0.1, 0.999,    // Ks:     mass window [GeV], dis_min [cm=1mm], cosAng
-          0.1, 1.4, 0.1, 0.999,    // Lambda: dis_min 0.1 cm = 1 mm physical
-          0.0, -1,  0.9, 0.999,    // Gamma:  invM_max=-1 (never passes, matching ntuplizer loose mode)
-          10., solenoidBz, dR_pair_cut, exclusive_tracks
+          LV0::kLooseKsMLo,    LV0::kLooseKsMHi,    LV0::kDisMinKs,    LV0::kLooseCosKs,
+          LV0::kLooseLamMLo,   LV0::kLooseLamMHi,   LV0::kDisMinLam,   LV0::kLooseCosLam,
+          LV0::kLooseGammaMLo, LV0::kLooseGammaMHi, LV0::kDisMinGamma, LV0::kLooseCosGamma,
+          LV0::kChi2Cut, solenoidBz, dR_pair_cut, exclusive_tracks
       );
   }
 
   else{
       return FCCAnalyses::VertexFinderLCFIPlus::get_V0s(
           np_tracks, PV,
-          0.453, 0.553, 0.1, 0.999,    // Ks:     mass window [GeV], dis_min [cm=1mm], cosAng
-          1.06,  1.16,  0.1, 0.99995,  // Lambda
-          0.0,   0.005, 0.9, 0.99995,  // Gamma
-          10., solenoidBz, dR_pair_cut, exclusive_tracks
+          LV0::kTightKsMLo,    LV0::kTightKsMHi,    LV0::kDisMinKs,    LV0::kTightCosKs,
+          LV0::kTightLamMLo,   LV0::kTightLamMHi,   LV0::kDisMinLam,   LV0::kTightCosLam,
+          LV0::kTightGammaMLo, LV0::kTightGammaMHi, LV0::kDisMinGamma, LV0::kTightCosGamma,
+          LV0::kChi2Cut, solenoidBz, dR_pair_cut, exclusive_tracks
       );
   }
 }
