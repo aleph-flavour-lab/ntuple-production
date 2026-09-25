@@ -166,7 +166,8 @@ class Analysis():
         # `cmdline_arg` dictionary.
         self.ana_args, unknown = parser.parse_known_args(cmdline_args['remaining'])
         if unknown:
-            print(f"----> WARNING: unrecognised arguments ignored: {' '.join(unknown)}")
+            print(f"----> ERROR: unrecognised arguments: {' '.join(unknown)}")
+            sys.exit(1)
         if not self.ana_args.doData and (self.ana_args.excludeRuns or self.ana_args.noRunList):
             print("----> ERROR: --excludeRuns and --noRunList apply to data only (--doData); Monte Carlo has no run list.")
             sys.exit(1)
@@ -199,19 +200,19 @@ class Analysis():
 
         if self.ana_args.MCflavour and not self.ana_args.MCtype:
             print("----> ERROR: Requested truth flavour filter with --MCflavour without specifying --MCtype.")
-            exit()
+            sys.exit(1)
         
         if self.ana_args.MCtype and not self.ana_args.MCtype in outnames_dict:
             print("----> ERROR: Requested unknown --MCtype. Currently only zqq available.")
-            exit()
+            sys.exit(1)
         
         if not self.ana_args.doData and not self.ana_args.MCflavour:
             print(f"----> ERROR: Requested MC run but did not specify --MCflavour. Please pick one..")
-            exit()
+            sys.exit(1)
         
         if self.ana_args.MCflavour and not self.ana_args.MCflavour in outnames_dict[self.ana_args.MCtype]:
             print(f"----> ERROR: Requested unknown --MCflavour for --MCtype {self.ana_args.MCtype}. Check the dictionary.")
-            exit()
+            sys.exit(1)
 
         #set the input/output directories:
         if self.ana_args.doData:
