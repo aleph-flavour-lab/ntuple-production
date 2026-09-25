@@ -1,5 +1,4 @@
 
-import hashlib
 import os
 import sys
 from argparse import ArgumentParser
@@ -7,14 +6,6 @@ from argparse import ArgumentParser
 # so this directory's modules are made importable here.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import run_list
-
-
-def run_number(text):
-    """argparse type: a positive run number"""
-    n = int(text)
-    if n <= 0:
-        raise ValueError(f"run number must be positive: {text}")
-    return n
 
 BZ = "FCCAnalyses::AlephUnits::kBz"  # solenoid field [T]
 
@@ -152,7 +143,7 @@ class Analysis():
                             help='Run tester file only for validation against Lukas ntuples.')
         parser.add_argument('--chunks', default=None, type=int,
                             help='Number of chunks per process/file')
-        parser.add_argument('--excludeRuns', nargs='+', action='extend', default=[], type=run_number, metavar='RUN',
+        parser.add_argument('--excludeRuns', nargs='+', action='extend', default=[], type=run_list.run_number, metavar='RUN',
                             help='data only: drop these run numbers in addition to the run list (eventsProcessed still counts the raw input).')
         parser.add_argument('--noRunList', action='store_true',
                             help='data only: keep every run instead of the data/lumi run list (--excludeRuns still applies).')
@@ -344,31 +335,7 @@ class Analysis():
         if self.ana_args.doData:
             # Run selection from the data/lumi list minus --excludeRuns (--noRunList: every run).
             # The list is read where the graph is built; $ALEPH_RUN_LIST_<year> overrides its path.
-            excluded = set(self.ana_args.excludeRuns)
-            kept = None
-            if not self.ana_args.noRunList:
-                if not run_list.has_list(self.ana_args.year):
-                    print(f"----> ERROR: no run list for year {self.ana_args.year} ({run_list.run_list_file(self.ana_args.year)}); pass --noRunList to run without one.")
-                    sys.exit(1)
-                kept = run_list.good_runs(self.ana_args.year) - excluded
-                if not kept:
-                    print("----> ERROR: the run list minus --excludeRuns is empty.")
-                    sys.exit(1)
-                print("----> " + run_list.summary(self.ana_args.year, exclude=excluded))
-            print(f"----> run selection: {'all runs' if kept is None else f'{len(kept)} listed runs'}, {len(excluded)} excluded {sorted(excluded)}")
-            if kept is not None:
-                import ROOT
-                runs = ",".join(str(r) for r in sorted(kept))
-                # one declaration per distinct run set
-                ns = "AlephRunList_" + hashlib.sha1(runs.encode()).hexdigest()[:16]
-                if not hasattr(ROOT, ns):
-                    ROOT.gInterpreter.Declare(
-                        "#include <unordered_set>\n"
-                        "namespace " + ns + " { const std::unordered_set<int> kept{" + runs + "};"
-                        " bool keep(int run) { return kept.count(run) > 0; } }")
-                df = df.Filter(f"EventHeader.runNumber.size() == 1 && {ns}::keep(EventHeader.runNumber[0])", "runList")
-            elif excluded:
-                df = df.Filter("EventHeader.runNumber.size() == 1 && " + " && ".join(f"EventHeader.runNumber[0] != {r}" for r in sorted(excluded)), "runList")
+            df = run_list.filter_runs(df, self.ana_args.year, self.ana_args.excludeRuns, self.ana_args.noRunList)
             #df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset)   || AlephSelection::sel_class_filter(17)(ClassBitset) ")
             df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset) ")
             df = df.Define("jetPID", "-999")

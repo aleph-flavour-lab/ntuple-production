@@ -1,8 +1,8 @@
 """Run selection and luminosity of the ALEPH data from data/lumi/run_list_<year>.csv
 (built by data/lumi/build_run_list.py from the ALEPH run database).
 
-stage1.py keeps only the selected runs; the plotting configuration takes the luminosity
-from luminosity_pb(). Override the file with $ALEPH_RUN_LIST_<year>.
+stage1.py and Kspipi_example.py keep only the selected runs (filter_runs); the plotting
+configuration takes the luminosity from luminosity_pb(). Override the file with $ALEPH_RUN_LIST_<year>.
 
 Luminosity policies (per selected run, nb^-1 in the file, pb^-1 here):
   nominal   stored SICAL luminosity; in fills whose SICAL bookkeeping is off (fill_rescaled = 1)
@@ -12,7 +12,9 @@ Luminosity policies (per selected run, nb^-1 in the file, pb^-1 here):
   sical_clean_fills   as sical, and the runs of the rescaled fills are dropped too
 """
 import csv
+import hashlib
 import os
+import sys
 
 DEFAULT_POLICY = "nominal"
 POLICIES = ("nominal", "sical", "sical_clean_fills")
@@ -84,6 +86,45 @@ def summary(year, policy=DEFAULT_POLICY, exclude=()):
         parts[key][1] += lumi
     detail = ", ".join(f"{k} {n} runs {L:.2f}" for k, (n, L) in parts.items() if n)
     return f"run list {year} policy {policy}: {len(lumis)} of {len(rows)} runs, {sum(lumis.values()):.2f} pb^-1 ({detail})"
+
+
+def run_number(text):
+    """argparse type: a positive run number"""
+    n = int(text)
+    if n <= 0:
+        raise ValueError(f"run number must be positive: {text}")
+    return n
+
+
+def filter_runs(df, year, exclude=(), all_runs=False):
+    """Run selection of a data RDataFrame: the selected runs of the year's list minus `exclude`
+    (all_runs: every run minus `exclude`). The list is read here, i.e. where the graph is built."""
+    excluded = set(exclude)
+    kept = None
+    if not all_runs:
+        if not has_list(year):
+            print(f"----> ERROR: no run list for year {year} ({run_list_file(year)}); pass --noRunList to run without one.")
+            sys.exit(1)
+        kept = good_runs(year) - excluded
+        if not kept:
+            print("----> ERROR: the run list minus --excludeRuns is empty.")
+            sys.exit(1)
+        print("----> " + summary(year, exclude=excluded))
+    print(f"----> run selection: {'all runs' if kept is None else f'{len(kept)} listed runs'}, {len(excluded)} excluded {sorted(excluded)}")
+    if kept is not None:
+        import ROOT
+        runs = ",".join(str(r) for r in sorted(kept))
+        # one declaration per distinct run set
+        ns = "AlephRunList_" + hashlib.sha1(runs.encode()).hexdigest()[:16]
+        if not hasattr(ROOT, ns):
+            ROOT.gInterpreter.Declare(
+                "#include <unordered_set>\n"
+                "namespace " + ns + " { const std::unordered_set<int> kept{" + runs + "};"
+                " bool keep(int run) { return kept.count(run) > 0; } }")
+        df = df.Filter(f"EventHeader.runNumber.size() == 1 && {ns}::keep(EventHeader.runNumber[0])", "runList")
+    elif excluded:
+        df = df.Filter("EventHeader.runNumber.size() == 1 && " + " && ".join(f"EventHeader.runNumber[0] != {r}" for r in sorted(excluded)), "runList")
+    return df
 
 
 if __name__ == "__main__":
