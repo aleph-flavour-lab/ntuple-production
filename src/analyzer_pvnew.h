@@ -656,14 +656,15 @@ inline VertexingUtils::FCCAnalysesVertex toFCCVertex(const PVSelResult& sel) {
   return out;
 }
 
-// Primary-track split: kept set, else all tracks vs the beam spot; empty if < 2.
+// Primary-track split: kept set of the returned fit if it converged, else all
+// tracks vs the beam spot; empty if < 2.
 inline RVec<edm4hep::TrackState> primaryTracksFromSel(
     const RVec<edm4hep::TrackState>& tracks, const PVSelResult& sel,
     double bx, double by, double bz, double chi2_max = PVN_CHI2_MAX,
     const FitConfig& cfg = FitConfig()) {
   RVec<edm4hep::TrackState> out;
   if (tracks.size() < 2) return out;
-  if (sel.split_converged) {
+  if (sel.fit.converged) {
     for (int i : sel.kept) out.push_back(tracks[i]);
     return out;
   }
