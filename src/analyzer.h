@@ -1341,6 +1341,7 @@ V0rejection_ALEPH(
     double solenoidBz = AlephUnits::kBz,
     bool inclusive = false)
 {
+    namespace LV0 = FCCAnalyses::AlephLegacyV0;
     int nTr = np_tracks.size();
     ROOT::VecOps::RVec<bool> isInV0(nTr, false);
     if (nTr < 2) return np_tracks;
@@ -1360,14 +1361,14 @@ V0rejection_ALEPH(
             tr_pair[1] = np_tracks[j];
 
             auto cand = FCCAnalyses::VertexFinderLCFIPlus::get_V0candidate(
-                V0_vtx, tr_pair, PV, true, 10., solenoidBz);
+                V0_vtx, tr_pair, PV, true, LV0::kChi2Cut, solenoidBz);
             if (cand.size() == 0) continue;
 
             // ALEPH-tuned tight constraints (widened mass windows, reduced distance minimum)
-            bool isKs    = cand[0]>0.453 && cand[0]<0.553 && cand[4]>0.1 && cand[5]>0.999;
-            bool isLam1  = cand[1]>1.06  && cand[1]<1.16  && cand[4]>0.1 && cand[5]>0.99995;
-            bool isLam2  = cand[2]>1.06  && cand[2]<1.16  && cand[4]>0.1 && cand[5]>0.99995;
-            bool isGamma = cand[3]<0.005 && cand[4]>0.9   && cand[5]>0.99995;
+            bool isKs    = cand[0]>LV0::kTightKsMLo  && cand[0]<LV0::kTightKsMHi  && cand[4]>LV0::kDisMinKs  && cand[5]>LV0::kTightCosKs;
+            bool isLam1  = cand[1]>LV0::kTightLamMLo && cand[1]<LV0::kTightLamMHi && cand[4]>LV0::kDisMinLam && cand[5]>LV0::kTightCosLam;
+            bool isLam2  = cand[2]>LV0::kTightLamMLo && cand[2]<LV0::kTightLamMHi && cand[4]>LV0::kDisMinLam && cand[5]>LV0::kTightCosLam;
+            bool isGamma = cand[3]<LV0::kTightGammaMHi && cand[4]>LV0::kDisMinGamma && cand[5]>LV0::kTightCosGamma;
 
             if (isKs || isLam1 || isLam2 || isGamma) {
                 isInV0[i] = true;
