@@ -964,6 +964,7 @@ class Analysis():
         df = df.Define("EVT_Thrust_Y",      "EVT_thrust.at(3)")
         df = df.Define("EVT_Thrust_Z",      "EVT_thrust.at(5)")
         df = df.Define("EVT_Thrust_cosTheta", "EVT_Thrust_Z / sqrt(EVT_Thrust_X*EVT_Thrust_X + EVT_Thrust_Y*EVT_Thrust_Y + EVT_Thrust_Z*EVT_Thrust_Z)")
+        df = df.Define("EVT_Evis",          "Sum(RP_e)")  # total visible energy: sum over all particle-flow candidates [GeV]
         
 
         return df
@@ -1228,6 +1229,7 @@ class Analysis():
             "EVT_Thrust_Y",
             "EVT_Thrust_Z",
             "EVT_Thrust_cosTheta",
+            "EVT_Evis",
             
             # to check if needed still? 
             # "dEdxPadsValue", "dEdxPadsError", "dEdxWiresValue", "dEdxWiresError",
