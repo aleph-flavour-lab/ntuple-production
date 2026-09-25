@@ -397,10 +397,9 @@ class Analysis():
             df = df.Define("Beamspot_y", "0.0")
             df = df.Define("Beamspot_z", "0.0")
 
-        if self.do_pvnew:
-            df = df.Define("Beamspot_x_cm", "Beamspot_x*1e-3")
-            df = df.Define("Beamspot_y_cm", "Beamspot_y*1e-3")
-            df = df.Define("Beamspot_z_cm", "Beamspot_z*1e-3")
+        df = df.Define("Beamspot_x_cm", "Beamspot_x*1e-3")
+        df = df.Define("Beamspot_y_cm", "Beamspot_y*1e-3")
+        df = df.Define("Beamspot_z_cm", "Beamspot_z*1e-3")
 
         # ==== Track selection (to harmonize with Luka's code)
         # Note: The selection strategy here only works if there is one trackstate stored pre track.
@@ -1007,6 +1006,9 @@ class Analysis():
             "Beamspot_x",
             "Beamspot_y",
             "Beamspot_z",
+            "Beamspot_x_cm",
+            "Beamspot_y_cm",
+            "Beamspot_z_cm",
             "Vertex_refit_x",
             "Vertex_refit_y",
             "Vertex_refit_z",
