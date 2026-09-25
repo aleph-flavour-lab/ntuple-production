@@ -13,7 +13,6 @@ import json
 import glob
 
 # from plotting_config_stage1 import PlottingConfig
-from plotting_config_inference import PlottingConfig
 
 ROOT.gROOT.SetBatch()
 ROOT.gStyle.SetOptTitle(0)
