@@ -192,7 +192,8 @@ inline PhiKKCands findPhiKK(
       const double sd1 = out.trk1.sigd0.back(), sd2 = out.trk2.sigd0.back();
       out.wp.push_back((dm < WP_DM && pdau && prompt) ? 1 : 0);
       out.tight.push_back((dm < TIGHT_DM && pdau && prompt &&
-                           sd1 < TIGHT_SIGD0 && sd2 < TIGHT_SIGD0) ? 1 : 0);
+                           sd1 > 0. && sd1 < TIGHT_SIGD0 &&
+                           sd2 > 0. && sd2 < TIGHT_SIGD0) ? 1 : 0);
     }
   }
   return out;

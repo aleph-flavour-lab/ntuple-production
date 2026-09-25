@@ -109,7 +109,7 @@ struct DstarBlock {
   RVec<float> dm;
   RVec<int>   rs;              // 1 = right-sign slow pion (charge of the pi)
   RVec<int>   loose, tight;
-  RVec<int>   d0idx;           // index into the D0 list, -1 if absent from it
+  RVec<int>   d0idx;           // index of the parent entry in the internal D0 list
   RVec<int>   nsec;            // legs in the secondary pool (0-3)
   TrkBlock    trkK, trkPi, trkPis;
 };

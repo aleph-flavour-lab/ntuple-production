@@ -261,7 +261,7 @@ enum TrkMemberBit : int {
 
 struct TrackTags {
   RVec<int> member;  // OR of TrkMemberBit, indexed by original track index
-  RVec<int> nCand;   // stored V0 + phi + D0 + D* candidates using the track
+  RVec<int> nCand;   // written v0n + phi + D* candidates using the track
 };
 
 namespace detail {
@@ -329,10 +329,9 @@ inline TrackTags trackTags(size_t nTracks,
     detail::tagBitIf(out.member, *leg, phi_wp, kTrkPhiWp);
     detail::countLegs(out.nCand, *leg);
   }
-  for (const RVec<int>* leg : {&d0_k, &d0_pi}) {
+  // the D0 list is not written: its legs get the bit but are not counted
+  for (const RVec<int>* leg : {&d0_k, &d0_pi})
     detail::tagBit(out.member, *leg, kTrkD0);
-    detail::countLegs(out.nCand, *leg);
-  }
   for (const RVec<int>* leg : {&ds_k, &ds_pi, &ds_pis}) {
     detail::tagBit(out.member, *leg, kTrkDstar);
     detail::tagBitIf(out.member, *leg, ds_tight, kTrkDstarTight);
