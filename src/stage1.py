@@ -95,6 +95,35 @@ V0N_LEG_TAG_DEFINES = (
     ("nTPC", "FCCAnalyses::AlephTrkAux::subdetHits({pfx}_origIdx, Tracks.subdetectorHitNumbers_begin, Tracks.subdetectorHitNumbers_end, _Tracks_subdetectorHitNumbers, 2)"),
 )
 
+# phi->KK branch names: single source for the Define chain and the output list
+PHIKK_CAND_BRANCHES = ("invM", "p", "px", "py", "pz", "alpha", "qt", "bandEll",
+                       "chi2", "vx", "vy", "vz", "dpv", "dpvSig", "same_sign",
+                       "wp", "tight")
+PHIKK_TRKS = ("trk1", "trk2")
+PHIKK_TRK_BRANCHES = ("origIdx", "q", "p", "costheta", "d0", "z0", "sigd0",
+                      "nvdet", "nitc", "chi2ndf", "isprim")
+
+# D* branch names; the kinematics shared with the internal D0 entry live in the CandKin member
+CAND_KIN_BRANCHES = ("m_kpi", "p", "px", "py", "pz", "costheta", "xE", "chi2",
+                     "vx", "vy", "vz", "dpv", "dpvSig", "cosPoint",
+                     "cosThetaStar")
+DSTAR_CAND_BRANCHES = ("m_kpi", "dm", "p", "px", "py", "pz", "costheta", "xE",
+                       "chi2", "vx", "vy", "vz", "dpv", "dpvSig", "cosPoint",
+                       "cosThetaStar", "rs", "loose", "tight", "d0idx", "nsec")
+DSTAR_TRK_BRANCHES = ("origIdx", "q", "p", "costheta", "d0", "z0", "sigd0",
+                      "nvdet", "nitc", "chi2ndf", "isprim", "pool")
+# (branch prefix, member of DstarCands) of every stored daughter leg
+DSTAR_TRK_LEGS = (("dstar_trkK", "ds.trkK"), ("dstar_trkPi", "ds.trkPi"),
+                  ("dstar_trkPis", "ds.trkPis"))
+# the internal D0 legs: no output block, only their track indices are used
+D0_TRK_LEGS = (("d0_trkK", "d0.trkK"), ("d0_trkPi", "d0.trkPi"))
+
+
+def _cand_member(block, branch):
+    """Member path of a D0/D* candidate branch inside DstarCands."""
+    return f"{block}.kin.{branch}" if branch in CAND_KIN_BRANCHES \
+        else f"{block}.{branch}"
+
 
 PVNEW = "FCCAnalyses::AlephPVNew"  # namespace holding the PV selection constants
 
@@ -131,6 +160,10 @@ class Analysis():
                             help='Legacy V0 only: drop the two-tier V0 module (no v0n_* branches).')
         parser.add_argument('--noV0TagVars', action='store_true',
                             help='Drop the jet-relative V0 tagger inputs (v0n_jetIdx/z/zL/ptRel/... and the per-leg q/p/nTPC). Implied by --oldV0.')
+        parser.add_argument('--noPhiKK', action='store_true',
+                            help='Skip the phi(1020)->K+K- finder (no phikk_* branches).')
+        parser.add_argument('--noDstar', action='store_true',
+                            help='Skip the D*+ -> D0(K pi) pi_slow finder (no dstar_* branches).')
         parser.add_argument('--noDedxGate', action='store_true',
                             help='accept every linked dE/dx measurement as valid, i.e. switch off the failed-leg omega sentinel gate; for converters that no longer copy omega into a failed leg.')
         parser.add_argument('--oldTrackSel', action='store_true',
@@ -149,6 +182,8 @@ class Analysis():
 
         self.do_v0new = not self.ana_args.oldV0
         self.do_v0tagvars = self.do_v0new and not self.ana_args.noV0TagVars
+        self.do_phikk = not self.ana_args.noPhiKK
+        self.do_dstar = not self.ana_args.noDstar
 
         self.do_pvnew = not self.ana_args.oldPV
 
@@ -265,6 +300,10 @@ class Analysis():
         self.include_paths = ["aleph_units.h", "aleph_reco_config.h", "analyzer.h", "analyzer_pvnew.h", "analyzer_truth.h", "analyzer_trkaux.h"]
         if self.do_v0new:
             self.include_paths.append("analyzer_v0new.h")
+        if self.do_phikk:
+            self.include_paths.append("analyzer_phikk.h")
+        if self.do_dstar:
+            self.include_paths.append("analyzer_dstar.h")
 
         # dE/dx validity gate, shared by the pfcand block and the candidate legs
         self.dedx_gate = "false" if self.ana_args.noDedxGate else "true"
@@ -462,6 +501,7 @@ class Analysis():
         # runs on data too
         df = df.Define("selBaselineOrigIdx", "tracks_selected_baseline_result.origIdx")
         df = df.Define("sec2origIdx",        "FCCAnalyses::AlephTruth::secondaryToOriginalTrack(SecondaryTracks_looseBS, trackstates_selected_baseline_flipped, selBaselineOrigIdx)")
+        df = df.Define("prim2origIdx",       "FCCAnalyses::AlephTruth::secondaryToOriginalTrack(RecoedPrimaryTracks_looseBS, trackstates_selected_baseline_flipped, selBaselineOrigIdx)")
 
         df = df.Define("Vertex_refit_x", "Vertex_refit_looseBS.position.x")
         df = df.Define("Vertex_refit_y", "Vertex_refit_looseBS.position.y")
@@ -620,7 +660,7 @@ class Analysis():
         # track -> ReconstructedParticle for the per-leg PF label, and track ->
         # dE/dx measurement index, where the shared validity gate is applied so
         # that a failed leg reads -1 in both the value and the error branch
-        if self.do_v0new:
+        if self.do_v0new or self.do_phikk or self.do_dstar:
             df = df.Define("rpOfTrack",
                            "FCCAnalyses::AlephTrkAux::rpIndexByTrack(RecoParticles.tracks_begin, RecoParticles.tracks_end, _RecoParticles_tracks.index, Tracks.size())")
             for _det, _coll in DEDX_COLLS:
@@ -647,6 +687,86 @@ class Analysis():
                 for _b, _e in V0N_TAG_DEFINES:
                     df = df.Define(f"v0n_{_b}", _e)
                 df = self._define_legs(df, _legs, V0N_LEG_TAG_DEFINES)
+
+        ############################################# exclusive-finder track auxiliaries ######################################
+        if self.do_phikk or self.do_dstar:
+            # both finders run on the full baseline-selected track list, joined to the original Tracks by selBaselineOrigIdx
+            TRKAUX = "FCCAnalyses::AlephTrkAux"
+            df = df.Define("trkaux_nvdet", f"{TRKAUX}::subdetHits(selBaselineOrigIdx, Tracks.subdetectorHitNumbers_begin, Tracks.subdetectorHitNumbers_end, _Tracks_subdetectorHitNumbers, 0)")
+            df = df.Define("trkaux_nitc",  f"{TRKAUX}::subdetHits(selBaselineOrigIdx, Tracks.subdetectorHitNumbers_begin, Tracks.subdetectorHitNumbers_end, _Tracks_subdetectorHitNumbers, 1)")
+            df = df.Define("trkaux_chi2ndf", f"{TRKAUX}::trackChi2Ndf(selBaselineOrigIdx, Tracks.chi2, Tracks.ndf)")
+            df = df.Define("trkaux_isprim",  f"{TRKAUX}::flagInSet(selBaselineOrigIdx, prim2origIdx)")
+            # tight Ks/Lambda daughters leave both pools; empty under --oldV0
+            if self.do_v0new:
+                df = df.Define("v0n_claimed_orig", f"{TRKAUX}::claimedOrigIdx(v0n_trk1_origIdx, v0n_trk2_origIdx, v0n_tight)")
+            else:
+                df = df.Define("v0n_claimed_orig", "ROOT::VecOps::RVec<int>{}")
+
+        ############################################# phi(1020) -> K+K- module ################################################
+        if self.do_phikk:
+            # every selection value is a constant in analyzer_phikk.h
+            phikk_expr = ("FCCAnalyses::AlephPhiKK::findPhiKK(trackstates_selected_baseline_flipped, "
+                          "selBaselineOrigIdx, trkaux_nvdet, trkaux_nitc, trkaux_chi2ndf, "
+                          f"trkaux_isprim, VertexObject_looseBS, {BZ}, v0n_claimed_orig, "
+                          "Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3)")
+            if self.do_pvnew:
+                phikk_expr = self._pv_guard(phikk_expr, "FCCAnalyses::AlephPhiKK::PhiKKCands{}")
+            df = df.Define("PhiKKCands_event", phikk_expr)
+            df = df.Define("n_phikk_event", "int(PhiKKCands_event.invM.size())")
+            for _b in PHIKK_CAND_BRANCHES:
+                df = df.Define(f"phikk_{_b}", f"PhiKKCands_event.{_b}")
+            for _t in PHIKK_TRKS:
+                for _b in PHIKK_TRK_BRANCHES:
+                    df = df.Define(f"phikk_{_t}_{_b}", f"PhiKKCands_event.{_t}.{_b}")
+            _legs = [f"phikk_{_t}" for _t in PHIKK_TRKS]
+            df = self._define_legs(df, _legs, DEDX_LEG_DEFINES)
+            df = self._define_legs(df, _legs, LEG_PID_DEFINES)
+
+        ############################################# D*->D0(K pi) pi_slow module #############################################
+        if self.do_dstar:
+            # primary/secondary class of every pool track (0 prim / 1 sec / 2 neither)
+            df = df.Define("dstar_pool_all", "FCCAnalyses::AlephDstar::poolClass(selBaselineOrigIdx, prim2origIdx, sec2origIdx)")
+            # every selection value is a constant in analyzer_dstar.h
+            dstar_expr = ("FCCAnalyses::AlephDstar::findDstar(trackstates_selected_baseline_flipped, "
+                          "selBaselineOrigIdx, trkaux_nvdet, trkaux_nitc, trkaux_chi2ndf, "
+                          "trkaux_isprim, dstar_pool_all, VertexObject_looseBS, v0n_claimed_orig, "
+                          f"{BZ}, Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3)")
+            if self.do_pvnew:
+                dstar_expr = self._pv_guard(dstar_expr, "FCCAnalyses::AlephDstar::DstarCands{}")
+            df = df.Define("DstarCands_event", dstar_expr)
+            df = df.Define("n_dstar_event", "int(DstarCands_event.ds.kin.m_kpi.size())")
+            # two-track fits actually performed: the combinatorial cost
+            df = df.Define("n_d0fits_event", "DstarCands_event.nfits")
+            for _b in DSTAR_CAND_BRANCHES:
+                df = df.Define(f"dstar_{_b}", f"DstarCands_event.{_cand_member('ds', _b)}")
+            for _pfx, _mem in DSTAR_TRK_LEGS:
+                for _b in DSTAR_TRK_BRANCHES:
+                    df = df.Define(f"{_pfx}_{_b}", f"DstarCands_event.{_mem}.{_b}")
+            _legs = [_pfx for _pfx, _ in DSTAR_TRK_LEGS]
+            df = self._define_legs(df, _legs, DEDX_LEG_DEFINES)
+            df = self._define_legs(df, _legs, LEG_PID_DEFINES)
+            # D0 leg indices for the membership pass; the D0 list is not written
+            for _pfx, _mem in D0_TRK_LEGS:
+                df = df.Define(f"{_pfx}_origIdx", f"DstarCands_event.{_mem}.origIdx")
+
+        ############################################# per-track membership ####################################################
+        # one pass over the finished candidate lists, per original track
+        _EMPTY = "ROOT::VecOps::RVec<int>{}"
+        # SV constituents come back in the baseline-selected frame the finder was given
+        df = df.Define("svTrkIdx", "FCCAnalyses::AlephTrkAux::svTrackIdx(SVs_looseBS)")
+        _v0 = ("v0n_trk1_origIdx, v0n_trk2_origIdx, v0n_tight" if self.do_v0new
+               else f"{_EMPTY}, {_EMPTY}, {_EMPTY}")
+        _phi = ("phikk_trk1_origIdx, phikk_trk2_origIdx, phikk_wp" if self.do_phikk
+                else f"{_EMPTY}, {_EMPTY}, {_EMPTY}")
+        _ds = ("d0_trkK_origIdx, d0_trkPi_origIdx, dstar_trkK_origIdx, "
+               "dstar_trkPi_origIdx, dstar_trkPis_origIdx, dstar_tight"
+               if self.do_dstar else ", ".join([_EMPTY] * 6))
+        df = df.Define("trkTags",
+                       "FCCAnalyses::AlephTrkAux::trackTags(Tracks.size(), "
+                       "selBaselineOrigIdx, prim2origIdx, svTrkIdx, selBaselineOrigIdx, "
+                       f"{_v0}, {_phi}, {_ds})")
+        df = df.Define("trk_member", "trkTags.member")
+        df = df.Define("trk_nCand",  "trkTags.nCand")
 
         ############################################# Particle Flow Level Variables #######################################################
         df = df.Define("pfcand_isMu",     "AlephSelection::get_isType(jetConstitutentsTypes,2)")
@@ -686,6 +806,9 @@ class Analysis():
         df = df.Define("pfcand_trackChi2",     "AlephSelection::get_constituent_trackChi2(jetc, TracksByRP)")
         df = df.Define("pfcand_trackNdof",     "AlephSelection::get_constituent_trackNdof(jetc, TracksByRP)")
         df = df.Define("pfcand_trackChi2Norm", "AlephSelection::get_constituent_trackChi2Norm(jetc, TracksByRP)")
+
+        # original-Tracks index of each constituent's track (-1 = none), the join key to the finders' *_origIdx branches
+        df = df.Define("pfcand_trackIdx", "AlephSelection::get_constituent_trackIdx(jetc, _RecoParticles_tracks.index)")
 
         # subdetector hit counts per constituent (inside-out: VDET, ITC, TPC)
         # the offsets inside TrackData index the flat hit-number array, so it is passed as is
@@ -864,6 +987,22 @@ class Analysis():
                     f"v0n_{t}_{b}" for t in V0N_TRKS
                     for b, _ in V0N_LEG_TAG_DEFINES
                 ]
+        if self.do_phikk:
+            module_branches += ["n_phikk_event"] + [
+                f"phikk_{b}" for b in PHIKK_CAND_BRANCHES
+            ] + [
+                f"phikk_{t}_{b}" for t in PHIKK_TRKS
+                for b in PHIKK_TRK_BRANCHES
+                + tuple(b for b, _ in DEDX_LEG_DEFINES + LEG_PID_DEFINES)
+            ]
+        if self.do_dstar:
+            module_branches += ["n_dstar_event", "n_d0fits_event"] + [
+                f"dstar_{b}" for b in DSTAR_CAND_BRANCHES
+            ] + [
+                f"{pfx}_{b}" for pfx, _ in DSTAR_TRK_LEGS
+                for b in DSTAR_TRK_BRANCHES
+                + tuple(b for b, _ in DEDX_LEG_DEFINES + LEG_PID_DEFINES)
+            ]
 
         pv_branches = ["pv_converged", "pv_split_converged", "pv_trivial",
                        "pv_good"] if self.do_pvnew else []
@@ -900,6 +1039,12 @@ class Analysis():
             "Vertex_refit_cov_zz",
             "Vertex_refit_chi2",
             *pv_branches,
+
+            # track <-> pfcand join key
+            "pfcand_trackIdx",
+            # per-original-track membership bitmask + stored-candidate multiplicity
+            "trk_member",
+            "trk_nCand",
 
             # gen level vertex & resolutions
             "gen_vertex_x",

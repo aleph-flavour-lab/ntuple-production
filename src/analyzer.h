@@ -1207,6 +1207,27 @@ get_constituent_trackChi2Norm(const rv::RVec<FCCAnalysesJetConstituents> &jcs,
                               const rv::RVec<edm4hep::TrackData> &tracks)
 { return get_constituent_trackQuality(jcs, tracks, 2); }
 
+// ORIGINAL-Tracks index of each constituent's own track, -1 when it has none:
+// the join key between the pfcand_* block and the finders' *_origIdx branches.
+// tracks_begin indexes the RP->Track relation, whose entries are track indices.
+rv::RVec<rv::RVec<int>>
+get_constituent_trackIdx(const rv::RVec<FCCAnalysesJetConstituents> &jcs,
+                         const rv::RVec<int> &rpTrackIndex)
+{
+  rv::RVec<rv::RVec<int>> out;
+  for (const auto &jet_csts : jcs) {
+    auto &o = out.emplace_back();
+    for (const auto &p : jet_csts) {
+      int val = -1;
+      size_t slot = p.tracks_begin;
+      if (p.tracks_begin != p.tracks_end && slot < rpTrackIndex.size())
+        val = rpTrackIndex.at(slot);
+      o.emplace_back(val);
+    }
+  }
+  return out;
+}
+
 // --- per-constituent subdetector hit counts --------------------------------
 // subdetectorNumber assumes inside-out ordering: 0 = VDET, 1 = ITC, 2 = TPC.
 rv::RVec<FCCAnalysesJetConstituentsData>
