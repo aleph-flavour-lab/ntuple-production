@@ -21,7 +21,7 @@ BZ = "FCCAnalyses::AlephUnits::kBz"  # solenoid field [T]
 # Legacy V0 finder call options; its mass windows live in analyzer_trkaux.h.
 V0_LEGACY_LOOSE_MASS_WINDOW = "true"
 V0_LEGACY_DR_PAIR_CUT = "-1."   # dR preselection on track pairs (<= 0 disables)
-V0_LEGACY_EXCLUSIVE_TRACKS = "true"  # each track in at most one V0
+V0_LEGACY_EXCLUSIVE_TRACKS = "true"  # skips used tracks, except that a booked pair's first track keeps pairing: tracks can be shared
 
 # Per-daughter dE/dx, joined through <prefix>_origIdx and STORED for the
 # calibration, never selected on: the collections to read, in written order.

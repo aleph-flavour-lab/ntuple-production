@@ -1400,6 +1400,8 @@ get_SV_event_ALEPH(
                        // FCCAnalyses@3a4de97 VertexSeed_best does isV0(tr_pair, PV, false) -- explicitly
                        // commented "V0 rejection (loose)" -- while the track-level V0rejection_tight uses
                        // tight. Two different tightnesses; we previously had tight in both.
+                       // The fork's loose Ks and Lambda windows are 0.1-1.4 GeV, so any
+                       // well-pointing displaced pair in that mass range is skipped.
     );
 }
 
