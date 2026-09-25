@@ -222,6 +222,10 @@ Offline remedies, in increasing order of effort: tighten the D⁰ mass window, s
 
 `trk_member` and `trk_nCand` are per-track arrays over the whole `Tracks` collection. `trk_member` is a bitmask recording every set a track belongs to: bit 0 fitted primary-vertex set, bit 1 daughter of any stored V0 candidate, bit 2 daughter of a *tight* V0, bit 3 leg of any stored φ→KK candidate, bit 4 leg of a φ candidate passing `phikk_wp`, bit 5 leg of a reconstructed D⁰→Kπ candidate, bit 6 leg of any stored D* candidate (slow pion included), bit 7 leg of a D* passing `dstar_tight`, bit 8 constituent track of a secondary vertex found by `get_SV_event_ALEPH`, bit 9 baseline-selected track. `trk_nCand` counts how many written `v0n`, φ and D* candidates use the track, which is the multiplicity the offline 1/n de-duplication weight needs — the φ and D* finders claim no tracks exclusively, so one track can serve many φ and D* candidates (V0 candidates claim their daughters exclusively, see above). Both are built in a single pass over the finished candidate lists, so they add no reconstruction work.
 
+### Event-level energy
+
+`EVT_Evis` is the total visible energy of the event in GeV: the sum of the energies of all particle-flow candidates of the event (`RecoParticles`). The missing energy, √s − `EVT_Evis`, is left to the analysis (the per-run centre-of-mass energy of the data is `ecm_gev` in `data/lumi/run_list_<year>.csv`).
+
 ### Run on batch:
 ```
 fccanalysis submit stage1.py -- --tag VXX-XX --MCflavour X --batch --chunks X
