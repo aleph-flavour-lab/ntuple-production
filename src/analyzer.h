@@ -873,8 +873,9 @@ flipD0_copy(const ROOT::VecOps::RVec<edm4hep::TrackState>& tracks) {
 // construction, so this is not needed there.
 //
 // One entry point: get_beamspot(run). It loads and caches data/beamspot.json on
-// first use and returns the position for that run, or (0,0,0) if the run is not
-// listed (same fallback as the reference implementation).
+// first use and returns the position for that run. A file that cannot be read or
+// a run that is not listed throws, which stops the job: the origin would be wrong
+// for data, and simulation does not call it.
 //
 // Units: the json stores cm. The FCCAnalyses vertex fitters want the beamspot
 // position in the same units as their widths, which we pass as "10 um"
@@ -892,7 +893,7 @@ TVector3 get_beamspot(int run, bool in_10um = true, const std::string &path = ""
   // (C++11 magic statics), which matters because RDataFrame runs multi-threaded.
   // Note: only the FIRST call's `path` is used - later calls reuse the cache.
   static const std::map<int, TVector3> coords = [path]() {
-    std::map<int, TVector3> m;   // cm; left empty if anything goes wrong -> origin everywhere
+    std::map<int, TVector3> m;   // cm
 
     std::string file = path;
     if (file.empty()) {
@@ -908,10 +909,7 @@ TVector3 get_beamspot(int run, bool in_10um = true, const std::string &path = ""
 
     std::ifstream in(file);
     if (!in.good()) {
-      std::cerr << "WARNING [get_beamspot]: could not open '" << file
-                << "' - using a beamspot at the origin for every run. "
-                << "That is correct for simulation but WRONG for data." << std::endl;
-      return m;
+      throw std::runtime_error("get_beamspot: could not open the beamspot file '" + file + "'");
     }
     try {
       nlohmann::json j;
@@ -923,18 +921,18 @@ TVector3 get_beamspot(int run, bool in_10um = true, const std::string &path = ""
             TVector3(v["x"].get<double>(), v["y"].get<double>(), v["z"].get<double>());
       }
     } catch (const std::exception &e) {
-      std::cerr << "WARNING [get_beamspot]: failed to parse '" << file
-                << "' (" << e.what() << ") - using the origin for every run." << std::endl;
-      return std::map<int, TVector3>{};
+      throw std::runtime_error("get_beamspot: failed to parse the beamspot file '" + file + "' (" + e.what() + ")");
     }
     std::cout << "INFO [get_beamspot]: loaded " << m.size()
               << " runs from " << file << std::endl;
     return m;
   }();
 
-  TVector3 bs(0., 0., 0.);   // fallback: unknown run, or file missing/unparsable
   auto it = coords.find(run);
-  if (it != coords.end()) bs = it->second;
+  if (it == coords.end()) {
+    throw std::runtime_error("get_beamspot: run " + std::to_string(run) + " is not in the beamspot file");
+  }
+  const TVector3 bs = it->second;
   return in_10um ? bs * 1e3 : bs;   // cm -> 10 um
 }
 
