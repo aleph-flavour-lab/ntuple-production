@@ -488,7 +488,8 @@ class Analysis():
             df = df.Define("Vertex_refit_looseBS", "VertexObject_looseBS.vertex")
             df = df.Define("Vertex_refit_tlv", "pv_good ? TLorentzVector(Vertex_refit_looseBS.position.x, Vertex_refit_looseBS.position.y, Vertex_refit_looseBS.position.z, 0.) : TLorentzVector(Beamspot_x_cm, Beamspot_y_cm, Beamspot_z_cm, 0.)")
         else:
-            # no primary tracks with fewer than 2 pre-selected tracks (get_PrimaryTracks would keep the one)
+            # no primary tracks with fewer than 2 pre-selected tracks (get_PrimaryTracks would keep the one);
+            # with fewer than 2 kept primary tracks, pruning included, VertexFitter_Tk returns the default vertex
             df = df.Define("RecoedPrimaryTracks_looseBS", "trackstates_selected_for_vertexfit_flipped.size() < 2 ? ROOT::VecOps::RVec<edm4hep::TrackState>{{}} : VertexFitterSimple::get_PrimaryTracks(trackstates_selected_for_vertexfit_flipped, true, {},{},{}, Beamspot_x, Beamspot_y, Beamspot_z, {})".format(res_x_loose, res_y_loose, res_z_loose, chi2max))
             df = df.Define("VertexObject_looseBS", "VertexFitterSimple::VertexFitter_Tk(1, RecoedPrimaryTracks_looseBS, true, {},{},{}, Beamspot_x, Beamspot_y, Beamspot_z)".format(res_x_loose, res_y_loose, res_z_loose))
             df = df.Define("Vertex_refit_looseBS", "VertexingUtils::get_VertexData(VertexObject_looseBS)")
