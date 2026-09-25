@@ -344,7 +344,7 @@ class Analysis():
             df = run_list.filter_runs(df, self.ana_args.year, self.ana_args.excludeRuns, self.ana_args.noRunList)
             #df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset)   || AlephSelection::sel_class_filter(17)(ClassBitset) ")
             df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset) ")
-            df = df.Define("jetPID", "-999")
+            df = df.Define("jetPID", "-999.f")
         else:
             # Using Classbit to filter out QQbar samples and then get a specific flavor of jets
             # d-quark: 1, u-quark:2, s-quark:3, c-quark:4, b-quark: 5
@@ -520,14 +520,14 @@ class Analysis():
 
         # gen level vertex for checks, fill dummies for data
         if self.ana_args.doData:
-            df = df.Define("gen_vertex_x", "-999")
-            df = df.Define("gen_vertex_y", "-999")
-            df = df.Define("gen_vertex_z", "-999")
+            df = df.Define("gen_vertex_x", "-999.")
+            df = df.Define("gen_vertex_y", "-999.")
+            df = df.Define("gen_vertex_z", "-999.")
 
             # refit vertex resolution:
-            df = df.Define("res_vertex_x", "-999")
-            df = df.Define("res_vertex_y", "-999")
-            df = df.Define("res_vertex_z", "-999")
+            df = df.Define("res_vertex_x", "-999.")
+            df = df.Define("res_vertex_y", "-999.")
+            df = df.Define("res_vertex_z", "-999.")
         
         else:
             df = df.Define("pv_gen_level", f'AlephSelection::get_EventPrimaryVertexP4()({coll["GenParticles"]})')
