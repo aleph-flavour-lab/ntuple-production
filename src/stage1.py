@@ -103,7 +103,7 @@ PHIKK_TRKS = ("trk1", "trk2")
 PHIKK_TRK_BRANCHES = ("origIdx", "q", "p", "costheta", "d0", "z0", "sigd0",
                       "nvdet", "nitc", "chi2ndf", "isprim")
 
-# D* branch names; the kinematics shared with the internal D0 entry live in the CandKin member
+# D* branch names; those read from the CandKin member (.kin): p/px/py/pz/costheta/xE are the D*'s, the rest the D0's
 CAND_KIN_BRANCHES = ("m_kpi", "p", "px", "py", "pz", "costheta", "xE", "chi2",
                      "vx", "vy", "vz", "dpv", "dpvSig", "cosPoint",
                      "cosThetaStar")

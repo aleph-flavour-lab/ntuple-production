@@ -192,13 +192,29 @@ Standalone φ(1020)→K⁺K⁻ reconstruction in [`analyzer_phikk.h`](analyzer_p
 
 **Stored per-daughter block** (`phikk_trk1_`, `phikk_trk2_`; `trk1` is the higher-momentum leg). Original-track index, charge, momentum, cosθ, d0/z0 w.r.t. the run beamspot, σ(d0) at the perigee, nVDET/nITC hits, track χ²/ndf, whether the track was in the fitted primary set, the pads/wires dE/dx value and error, and the particle-flow label `isChargedHad` — everything the offline quality and purity scans need.
 
+Per candidate (`n_phikk_event` entries); the per-leg branches are in the table of the D* section:
+
+| branch | definition | unit | undefined |
+| --- | --- | --- | --- |
+| `phikk_invM` | K⁺K⁻ invariant mass from the momenta at the fitted vertex | GeV | — |
+| `phikk_p`, `phikk_px/py/pz` | pair momentum at the fitted vertex | GeV | — |
+| `phikk_alpha` | Armenteros–Podolanski α = (p∥ᵃ − p∥ᵇ)/(p∥ᵃ + p∥ᵇ). Opposite-charge pair: a is the positive track, as for `v0n_alpha`. Same-charge pair: a is the leg with the lower `origIdx`, so the sign of α follows neither `trk1` nor the charge | — | — |
+| `phikk_qt` | Armenteros–Podolanski qT | GeV | — |
+| `phikk_bandEll` | equal-mass AP ellipse variable, 1 on the exact locus (see above) | — | — |
+| `phikk_chi2` | vertex-fit χ² (one degree of freedom) | — | — |
+| `phikk_vx/vy/vz` | fitted vertex position | cm | — |
+| `phikk_dpv` | distance \|vertex − primary vertex\| | cm | — |
+| `phikk_dpvSig` | √(dᵀ(C_vtx + C_PV)⁻¹ d), d = vertex − primary vertex, with the full 3×3 covariances. It is always ≥ the flight significance defined like `v0n_LxyzSig` (distance over its uncertainty projected on the displacement direction): for a prompt vertex with Gaussian errors it exceeds 3 in about 3 % of cases (its square is a χ² with three degrees of freedom), the projected form less often, down to about 0.3 % for the elongated error ellipsoids of two-track vertices | — | −1 (singular covariance) |
+| `phikk_same_sign` | 1 = same-charge pair (combinatorial control) | — | — |
+| `phikk_wp`, `phikk_tight` | working-point labels, see above | — | — |
+
 ### The D*→D⁰π finder
 
 Standalone D*⁺→D⁰(K⁻π⁺)π⁺_slow reconstruction in [`analyzer_dstar.h`](analyzer_dstar.h), on by default and skipped with `--noDstar` (`dstar_*` branches). Like the φ→KK finder it is an extension of the standalone V0 machinery whose purpose is a **kinematically tagged kaon sample for dE/dx calibration** — so **no dE/dx quantity enters any selection**; the daughters' dE/dx measurements are stored, never cut on. The mass difference Δm = m(Kππ_s) − m(Kπ) is the handle: its resolution is set by the slow pion alone, so a narrow Δm window together with the D⁰ mass window isolates a sample in which the track given the kaon mass really is a kaon.
 
 **One output collection.** Only the D* list is written (`dstar_*`, one entry per D⁰ candidate × third track); `n_dstar_event` counts it. The D⁰→Kπ candidates the D* is built from stay internal, and `dstar_d0idx` is the index of the parent entry in that internal list: entries sharing a `dstar_d0idx` share the same K/π pair, mass assignment and fitted vertex, and differ only by the slow pion. `n_d0fits_event` counts the two-track fits actually performed, i.e. the combinatorial cost of the event.
 
-**Candidate building.** Track pairs are formed from the *full* baseline-selected track list — primary and secondary tracks alike, with no masking by the PV split — and vertexed with the same single consistent `VertexFitter_Tk` call as the V0 module (momenta rescaled once by the cm-as-mm factor 10). **Both mass assignments** of every opposite-charge pair are separate candidates: the kaon hypothesis is what defines the tag, so (a=K, b=π) and (a=π, b=K) are different objects, not a symmetry to be resolved. A pre-fit Kπ mass window on the perigee momenta removes the bulk of the pair combinatorics before any fit, and a pair is fitted once however many mass assignments and slow pions reach it. There is **no exclusive claiming**: a track may appear in several candidates. Per candidate, `dstar_nsec` records how many legs sit in the secondary pool, and each daughter carries `..._pool` (0 primary set, 1 secondary set, 2 neither) beside `..._isprim`.
+**Candidate building.** Track pairs are formed from the *full* baseline-selected track list — primary and secondary tracks alike, with no masking by the PV split — and vertexed with the same single consistent `VertexFitter_Tk` call as the V0 module (momenta rescaled once by the cm-as-mm factor 10). **Both mass assignments** of every opposite-charge pair are separate candidates: the kaon hypothesis is what defines the tag, so (a=K, b=π) and (a=π, b=K) are different objects, not a symmetry to be resolved. A pre-fit Kπ mass window on the perigee momenta removes the bulk of the pair combinatorics before any fit, and a pair is fitted once however many mass assignments and slow pions reach it. There is **no exclusive claiming**: a track may appear in several candidates. Per candidate, `dstar_nsec` records how many legs sit in the secondary pool, and each daughter carries `..._pool` (0 primary set, 1 secondary set) beside `..._isprim`.
 
 **No three-track fit.** The D⁰ flies ≈0.6 mm while the slow pion comes from the D* decay point, i.e. from the PV region, so a common three-track vertex would be wrong. The D* is built from the D⁰ momenta **at the fitted D⁰ vertex** plus the slow pion's **perigee** momentum, and Δm is required below `DM_MAX`.
 
@@ -206,7 +222,7 @@ Standalone D*⁺→D⁰(K⁻π⁺)π⁺_slow reconstruction in [`analyzer_dstar.
 
 Offline remedies, in increasing order of effort: tighten the D⁰ mass window, since the swapped assignment is displaced in m(Kπ) even though Δm is not; or veto wrong-sign candidates whose swapped partner also falls in the D⁰ window — both mass assignments of a pair are separate entries sharing the same daughter `*_origIdx`, so the partner is identifiable in data as well as in simulation; or normalise the wrong-sign template to the in-peak background level rather than to a Δm sideband. Neither a plain RS − WS difference nor a sideband-normalised one is unbiased, and neither should be used for an absolute yield without one of these corrections.
 
-**Promptness is not required.** D* from b decays give a D⁰ that does not point at the PV, so there is no displacement window and no pointing cut: `dstar_dpv` and `dstar_dpvSig` (3D significance vs the PV) are **stored, never cut on**, and only the wide storage fiducial `DPV_FID` bounds |vtx − PV|; `dstar_cosPoint` is stored too and enters the `dstar_tight` label alone, which rejects random pairs without requiring promptness. `dstar_cosThetaStar`, the cosine of the kaon direction in the D⁰ rest frame w.r.t. the D⁰ lab flight direction, is stored too: flat for a true two-body decay, peaked at |cos| = 1 for combinatorics.
+**Promptness is not required.** D* from b decays give a D⁰ that does not point at the PV, so there is no displacement window and no pointing cut: `dstar_dpv` and `dstar_dpvSig` (3D significance vs the PV) are **stored, never cut on**, and only the wide storage fiducial `DPV_FID` bounds |vtx − PV|; `dstar_cosPoint` is stored too and enters the `dstar_tight` label alone, which rejects random pairs without requiring promptness. `dstar_cosThetaStar`, the cosine of the kaon direction in the D⁰ rest frame w.r.t. the D⁰ momentum direction in the lab, is stored too: flat for a true two-body decay, peaked at |cos| = 1 for combinatorics.
 
 **Selection.** Not configurable from the command line: every value is a named `constexpr` in `analyzer_dstar.h`, namespace `AlephDstar`, read directly by `findDstar`, so `stage1.py` passes none of them; the numbers are those declarations. What is *stored* is deliberately loose, so any working point is re-derivable offline: a Kπ mass window (`M_LO`/`M_HI`, widened for the pre-fit stage by `PRE_MARGIN`), a loose D⁰ vertex χ² ceiling (`CHI2_CUT`, sanity only), a storage fiducial on |vtx − PV| (`DPV_FID`), a Δm ceiling (`DM_MAX`), and perigee momentum floors for the K and π (`P_MIN`) and for the slow pion (`PS_MIN`). No track-quality prefilter is applied.
 
@@ -215,6 +231,41 @@ Offline remedies, in increasing order of effort: tighten the D⁰ mass window, s
 **Working-point flags.** Labels, not cuts — no candidate is dropped by them, and they are evaluated on the stored post-fit quantities. `dstar_loose` = |m(Kπ) − m_D⁰| < `DS_LOOSE_DM` and |Δm − `DM_NOMINAL`| < `DS_LOOSE_DDM`, with no requirement on the slow pion or the pointing. `dstar_tight` tightens those to `DS_TIGHT_DM` and `DS_TIGHT_DDM` and adds p(K) > `TIGHT_PK`, p(π) > `TIGHT_PPI`, a D⁰ vertex χ² below `TIGHT_CHI2`, p(π_s) > `DS_TIGHT_PS`, `cosPoint` > `DS_TIGHT_COSPOINT`, and a **primary-pattern veto**: a candidate whose K and π are both in the fitted primary set while its slow pion is not is rejected, that pattern being combinatorial rather than a real D* topology.
 
 **Stored per-daughter block** (`dstar_trkK_`, `dstar_trkPi_`, and `dstar_trkPis_` for the slow pion). Original-track index, charge, momentum, cosθ, d0/z0 (beamspot-referenced, as on the φ legs), σ(d0) at the perigee, nVDET/nITC hits, track χ²/ndf, whether the track was in the fitted primary set, the staging pool, the pads/wires dE/dx value and error, and the particle-flow label `isChargedHad`.
+
+Per D* entry (`n_dstar_event` entries). Some branches describe the D*, others the D⁰ it is built from:
+
+| branch | definition | unit | undefined |
+| --- | --- | --- | --- |
+| `dstar_m_kpi` | D⁰ mass m(Kπ) from the momenta at the fitted D⁰ vertex | GeV | — |
+| `dstar_dm` | Δm = m(Kππ_s) − m(Kπ) | GeV | — |
+| `dstar_p`, `dstar_px/py/pz`, `dstar_costheta` | **D\*** momentum and its cosθ: the D⁰ momentum at the fitted vertex plus the slow pion's perigee momentum | GeV, — | — |
+| `dstar_xE` | **D\*** energy over the fixed beam energy `kEBeam` (45.6 GeV) | — | — |
+| `dstar_chi2` | D⁰ vertex-fit χ² (one degree of freedom) | — | — |
+| `dstar_vx/vy/vz` | fitted D⁰ vertex position | cm | — |
+| `dstar_dpv` | distance \|D⁰ vertex − primary vertex\| | cm | — |
+| `dstar_dpvSig` | as `phikk_dpvSig` (full covariances), for the D⁰ vertex | — | −1 (singular covariance) |
+| `dstar_cosPoint` | cosine between the **D⁰** momentum (not `dstar_p`) and the flight direction D⁰ vertex − primary vertex | — | −99 (zero flight length) |
+| `dstar_cosThetaStar` | cosine of the kaon direction in the D⁰ rest frame w.r.t. the D⁰ momentum direction in the lab | — | — |
+| `dstar_rs` | 1 = right-sign: the slow pion has the charge of the pion leg | — | — |
+| `dstar_loose`, `dstar_tight` | working-point labels, see above | — | — |
+| `dstar_d0idx` | index of the parent D⁰ candidate in the internal list | — | — |
+| `dstar_nsec` | number of legs (0–3) in the secondary track set | — | — |
+
+Per leg, for the φ legs `phikk_trk{1,2}_*` (`trk1` the higher-momentum one) and the D* legs `dstar_trkK_*`, `dstar_trkPi_*`, `dstar_trkPis_*`:
+
+| branch | definition | unit | undefined |
+| --- | --- | --- | --- |
+| `_origIdx` | index of the track in the `Tracks` collection | — | — |
+| `_q` | physical charge | e | — |
+| `_p`, `_costheta` | momentum magnitude and cosθ: at the fitted vertex for the φ legs and the D* kaon and pion, at the perigee for the slow pion `dstar_trkPis` | GeV, — | `_costheta` −99 (zero momentum) |
+| `_d0`, `_z0` | perigee impact parameters re-referenced to the run beamspot (the origin in simulation), in the LCIO sign convention of `pfcand_d0` | cm | — |
+| `_sigd0` | square root of the d0 variance of the stored, origin-referenced perigee state | cm | −1 (non-positive variance) |
+| `_nvdet`, `_nitc` | hits of the track in the vertex detector (VDET) and the inner tracking chamber (ITC) | — | −1 (no hit-count block) |
+| `_chi2ndf` | track-fit χ²/ndf | — | −1 (ndf = 0) |
+| `_isprim` | 1 = in the fitted primary-vertex set | — | — |
+| `_pool` (D* only) | 0 = primary set, 1 = secondary set; the value 2 ("neither") does not occur, since every baseline track is in one of the two | — | — |
+| `_dEdx_{pads,wires}_{value,error}` | dE/dx measurement after the validity gate | as `pfcand_dEdx_*` | −1 (missing or failed, as on the `v0n` legs) |
+| `_isChargedHad` | tri-state particle-flow label (see above) | — | −1 (no linked reconstructed particle) |
 
 ### Track membership and joins
 
