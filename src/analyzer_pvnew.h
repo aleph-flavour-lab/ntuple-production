@@ -275,9 +275,10 @@ struct TrackTerms {
   double cond_max = 0.0;
 };
 
+// point_cov: optional covariance of the point x, added to each track's point covariance
 inline void track_terms(const TrackSet& ts, const Vec3& x,
                         const std::vector<double>& L_in, const FitConfig& cfg,
-                        TrackTerms& out) {
+                        TrackTerms& out, const Mat3* point_cov = nullptr) {
   const size_t N = ts.size();
   std::vector<double> L = L_in;
   for (int it = 0; it < cfg.phase_iter; ++it) {
@@ -286,7 +287,8 @@ inline void track_terms(const TrackSet& ts, const Vec3& x,
       const Vec3 X = helix_point(ts.par[i], L[i]);
       const Mat35 A = helix_dXdpar(ts.par[i], L[i]);
       const Vec3 a = helix_dXdL(ts.par[i], L[i]);
-      const Mat3 Winv = A * ts.cov[i] * A.transpose();
+      Mat3 Winv = A * ts.cov[i] * A.transpose();
+      if (point_cov) Winv += *point_cov;
       const Mat3 W = reg_inv(Winv, cfg.rcond);
       const Vec3 aw = W * a;
       const double denom = a.dot(aw);
@@ -306,7 +308,8 @@ inline void track_terms(const TrackSet& ts, const Vec3& x,
     const Vec3 X = helix_point(ts.par[i], L[i]);
     const Mat35 A = helix_dXdpar(ts.par[i], L[i]);
     const Vec3 a = helix_dXdL(ts.par[i], L[i]);
-    const Mat3 Winv = A * ts.cov[i] * A.transpose();
+    Mat3 Winv = A * ts.cov[i] * A.transpose();
+    if (point_cov) Winv += *point_cov;
     double cond;
     bool ok;
     const Mat3 W = reg_inv(Winv, cfg.rcond, cond, ok);
@@ -657,7 +660,7 @@ inline VertexingUtils::FCCAnalysesVertex toFCCVertex(const PVSelResult& sel) {
 }
 
 // Primary-track split: kept set of the returned fit if it converged, else all
-// tracks vs the beam spot; empty if < 2.
+// tracks vs the beam spot, spread along z by the constraint's length; empty if < 2.
 inline RVec<edm4hep::TrackState> primaryTracksFromSel(
     const RVec<edm4hep::TrackState>& tracks, const PVSelResult& sel,
     double bx, double by, double bz, double chi2_max = PVN_CHI2_MAX,
@@ -671,8 +674,10 @@ inline RVec<edm4hep::TrackState> primaryTracksFromSel(
   const detail::TrackSet ts = detail::convert(tracks);
   const Vec3 x(bx, by, bz);
   std::vector<double> L(ts.size(), 0.0);
+  Mat3 lum = Mat3::Zero();
+  lum(2, 2) = PVN_BS_SIGMA_Z * PVN_BS_SIGMA_Z;
   detail::TrackTerms tt;
-  detail::track_terms(ts, x, L, cfg, tt);
+  detail::track_terms(ts, x, L, cfg, tt, &lum);
   for (size_t i = 0; i < tracks.size(); ++i)
     if (tt.chi2[i] < chi2_max) out.push_back(tracks[i]);
   return out;
