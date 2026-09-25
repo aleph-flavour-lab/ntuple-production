@@ -145,7 +145,7 @@ class Analysis():
                             help='For MC only: filter out events based on truth quark flavours. Default is none. Options: \
                             1 = dd, 2 = uu, 3 = ss, 4 = cc, 5 = bb')
         parser.add_argument('--fraction', default=1.0, type=float,
-                            help='Fraction of events to run, default is 1.0 = 100%')
+                            help='Fraction of events to run, default is 1.0 = 100%%')
         parser.add_argument('--batch', action='store_true', 
                             help='Submit to HTCondor batch')
         parser.add_argument('--valid', action='store_true', 
