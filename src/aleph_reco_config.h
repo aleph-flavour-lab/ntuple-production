@@ -1,8 +1,9 @@
 #ifndef ALEPH_RECO_CONFIG_H
 #define ALEPH_RECO_CONFIG_H
-// Primary-vertex reconstruction constants shared by stage1.py and the standalone
-// examples. Dependency-free; lengths in cm unless the name says otherwise
-// (solenoid field and track conventions: aleph_units.h).
+// Primary-vertex reconstruction constants shared by stage1.py, the standalone
+// fitter (analyzer_pvnew.h) and the standalone examples. Dependency-free;
+// lengths in cm unless the name says otherwise (solenoid field and track
+// conventions: aleph_units.h).
 namespace FCCAnalyses {
 namespace AlephReco {
 // impact-parameter preselection of the primary-vertex candidate tracks

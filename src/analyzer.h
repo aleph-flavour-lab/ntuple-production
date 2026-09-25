@@ -395,6 +395,41 @@ select_tracks_impactparameters(const SelectedTracks& input,
 }
 
 
+// same window, |D0| and |Z0| referenced to the beamspot b [cm]; raw states: d0 = -D0*n, dphi/ds = +omega
+SelectedTracks
+select_tracks_impactparameters_bs(const SelectedTracks& input,
+                                  float d0_upper_bound,
+                                  float z0_upper_bound,
+                                  float bsx,
+                                  float bsy,
+                                  float bsz)
+{
+    SelectedTracks selected;
+
+    for (size_t i = 0; i < input.tracks.size(); ++i) {
+
+        const auto& track = input.tracks[i];
+        const auto& state = input.trackStates[i];
+
+        const double cphi = std::cos(state.phi);
+        const double sphi = std::sin(state.phi);
+
+        const double s   = bsx * cphi + bsy * sphi;
+        const double d0p = state.D0 - bsx * sphi + bsy * cphi - 0.5 * state.omega * s * s;
+        const double z0p = state.Z0 - bsz + state.tanLambda * s;
+
+        if (std::abs(d0p) > d0_upper_bound) continue;
+        if (std::abs(z0p) > z0_upper_bound) continue;
+
+        selected.tracks.push_back(track);
+        selected.trackStates.push_back(state);
+        selected.origIdx.push_back(input.origIdx[i]);
+    }
+
+    return selected;
+}
+
+
 
 // --------------------------------------
 // Event primary vertex reconstruction
