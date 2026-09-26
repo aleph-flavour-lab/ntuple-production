@@ -13,7 +13,6 @@ import json
 import glob
 
 # from plotting_config_stage1 import PlottingConfig
-from plotting_config_inference import PlottingConfig
 
 ROOT.gROOT.SetBatch()
 ROOT.gStyle.SetOptTitle(0)
@@ -78,25 +77,32 @@ def addOverflowToLastBin(hist):
 
 
 
+def usable_chunks(input_filepath, tree_name="events"):
+    # completed chunk files with a non-empty tree; a chunk whose input had no selected event has none,
+    # and a job that stopped with an error leaves no eventsSelected
+    usable = []
+    for f in glob.glob(os.path.join(input_filepath, "chunk*.root")):
+        tf = ROOT.TFile.Open(f)
+        if not tf or tf.IsZombie():
+            print(f"File {f} is not a valid ROOT file. Skipping.")
+            continue
+        tree = tf.Get(tree_name)
+        if not tree or tree.GetEntries() == 0:
+            print(f"Tree '{tree_name}' not found or empty in file {f}. Skipping.")
+            continue
+        if not tf.GetListOfKeys().Contains("eventsSelected"):
+            print(f"File {f} is incomplete (no eventsSelected). Skipping.")
+            continue
+        usable.append(f)
+    return usable
+
 def is_valid_rdf(input_filepath, tree_name="events"):
 
-    # Check if input is a directory and if yes, if all chunks are ok
+    # Check if input is a directory and if yes, if it has a usable chunk
     if os.path.isdir(input_filepath):
-        files = glob.glob(os.path.join(input_filepath, "chunk*.root")) #allow for a top level dir above chunks, thanks to FCCAna production complication
-        
-        # files = glob.glob(os.path.join(input_filepath, "chunk*.root"))
-        if not files:
-            print(f"No files found in {input_filepath}. Skipping.")
+        if not usable_chunks(input_filepath, tree_name):
+            print(f"No usable files found in {input_filepath}. Skipping.")
             return False
-
-        for f in files:
-            tf = ROOT.TFile.Open(f)
-            if not tf or tf.IsZombie():
-                print(f"File {f} is not a valid ROOT file. Skipping.")
-                continue
-            if not tf.Get(tree_name):
-                print(f"Tree '{tree_name}' not found in file {f}. Skipping.")
-                continue
     # Handle the case where the path is a single file
     else:
         if not os.path.isfile(input_filepath):
@@ -145,7 +151,7 @@ def get_rdf(input_filepath, tree_name="events"):
         # rdf = ROOT.RDataFrame("events", input_filepath+"/*/chunk*") #allow for top level dir.
 
         # Get list of chunks allowing for inconvenient FCCAna extra top level dir
-        chunk_files = glob.glob(input_filepath + "/chunk*.root")
+        chunk_files = usable_chunks(input_filepath, tree_name)
         if not chunk_files:
             raise FileNotFoundError(f"No chunk files found under {input_filepath}")
 
@@ -298,6 +304,9 @@ def get_hist_from_tree(proc_name, input_filepath, plot_specs, norm_file=None,
 
     # get the dataframe and fill the histogram model
     rdf = get_rdf(input_filepath, tree_name)
+    if rdf is None:
+        # nothing usable in this sample: an empty histogram, which the caller skips
+        return hist_model.GetHistogram()
 
     # mask branches for jet constituent selection if requested:
     if selection and branches_to_mask:

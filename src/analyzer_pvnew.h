@@ -131,6 +131,7 @@ struct PVSelResult {
   PVFitResult fit;          // the fit of the final kept set
   bool split_converged = false;  // every pruning pass converged
   bool trivial = false;  // fewer than min_tracks tracks entered the fit
+  bool floor_incompatible = false;  // pruning stopped at min_tracks with a track >= chi2_max
   int n_passes = 0;
 };
 
@@ -275,9 +276,10 @@ struct TrackTerms {
   double cond_max = 0.0;
 };
 
+// point_cov: optional covariance of the point x, added to each track's point covariance
 inline void track_terms(const TrackSet& ts, const Vec3& x,
                         const std::vector<double>& L_in, const FitConfig& cfg,
-                        TrackTerms& out) {
+                        TrackTerms& out, const Mat3* point_cov = nullptr) {
   const size_t N = ts.size();
   std::vector<double> L = L_in;
   for (int it = 0; it < cfg.phase_iter; ++it) {
@@ -286,7 +288,8 @@ inline void track_terms(const TrackSet& ts, const Vec3& x,
       const Vec3 X = helix_point(ts.par[i], L[i]);
       const Mat35 A = helix_dXdpar(ts.par[i], L[i]);
       const Vec3 a = helix_dXdL(ts.par[i], L[i]);
-      const Mat3 Winv = A * ts.cov[i] * A.transpose();
+      Mat3 Winv = A * ts.cov[i] * A.transpose();
+      if (point_cov) Winv += *point_cov;
       const Mat3 W = reg_inv(Winv, cfg.rcond);
       const Vec3 aw = W * a;
       const double denom = a.dot(aw);
@@ -306,7 +309,8 @@ inline void track_terms(const TrackSet& ts, const Vec3& x,
     const Vec3 X = helix_point(ts.par[i], L[i]);
     const Mat35 A = helix_dXdpar(ts.par[i], L[i]);
     const Vec3 a = helix_dXdL(ts.par[i], L[i]);
-    const Mat3 Winv = A * ts.cov[i] * A.transpose();
+    Mat3 Winv = A * ts.cov[i] * A.transpose();
+    if (point_cov) Winv += *point_cov;
     double cond;
     bool ok;
     const Mat3 W = reg_inv(Winv, cfg.rcond, cond, ok);
@@ -603,11 +607,12 @@ inline PVSelResult select_core(const TrackSet& ts, const BeamSpot* bs,
         imax = static_cast<int>(i);
       }
     }
-    if (imax < 0 || !(cmax >= chi2_max) ||
-        static_cast<int>(keep.size()) - 1 < min_tracks) {
+    const bool at_floor = static_cast<int>(keep.size()) - 1 < min_tracks;
+    if (imax < 0 || !(cmax >= chi2_max) || at_floor) {
       out.kept.assign(keep.begin(), keep.end());
       out.fit = res;
       out.split_converged = true;
+      out.floor_incompatible = at_floor && cmax >= chi2_max;
       return out;
     }
     keep.erase(keep.begin() + imax);
@@ -627,9 +632,10 @@ inline PVSelResult select_primary_tracks(
   return detail::select_core(ts, &bs, chi2_max, cfg, min_tracks);
 }
 
-// True when the PV is usable: fit converged, every pass converged, not trivial.
+// True when the PV is usable: fit converged, every pass converged, not trivial,
+// and every kept track below chi2_max.
 inline bool goodPV(const PVSelResult& sel) {
-  return sel.fit.converged && sel.split_converged && !sel.trivial;
+  return sel.fit.converged && sel.split_converged && !sel.trivial && !sel.floor_incompatible;
 }
 
 // PVSelResult -> FCCAnalysesVertex; cov zeroed unless converged, chi2 = chi2/ndf.
@@ -657,7 +663,7 @@ inline VertexingUtils::FCCAnalysesVertex toFCCVertex(const PVSelResult& sel) {
 }
 
 // Primary-track split: kept set of the returned fit if it converged, else all
-// tracks vs the beam spot; empty if < 2.
+// tracks vs the beam spot, spread by the constraint's widths; empty if < 2.
 inline RVec<edm4hep::TrackState> primaryTracksFromSel(
     const RVec<edm4hep::TrackState>& tracks, const PVSelResult& sel,
     double bx, double by, double bz, double chi2_max = PVN_CHI2_MAX,
@@ -671,8 +677,12 @@ inline RVec<edm4hep::TrackState> primaryTracksFromSel(
   const detail::TrackSet ts = detail::convert(tracks);
   const Vec3 x(bx, by, bz);
   std::vector<double> L(ts.size(), 0.0);
+  Mat3 lum = Mat3::Zero();
+  lum(0, 0) = PVN_BS_SIGMA_X * PVN_BS_SIGMA_X;
+  lum(1, 1) = PVN_BS_SIGMA_Y * PVN_BS_SIGMA_Y;
+  lum(2, 2) = PVN_BS_SIGMA_Z * PVN_BS_SIGMA_Z;
   detail::TrackTerms tt;
-  detail::track_terms(ts, x, L, cfg, tt);
+  detail::track_terms(ts, x, L, cfg, tt, &lum);
   for (size_t i = 0; i < tracks.size(); ++i)
     if (tt.chi2[i] < chi2_max) out.push_back(tracks[i]);
   return out;

@@ -1,5 +1,4 @@
 
-import hashlib
 import os
 import sys
 from argparse import ArgumentParser
@@ -7,14 +6,6 @@ from argparse import ArgumentParser
 # so this directory's modules are made importable here.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import run_list
-
-
-def run_number(text):
-    """argparse type: a positive run number"""
-    n = int(text)
-    if n <= 0:
-        raise ValueError(f"run number must be positive: {text}")
-    return n
 
 BZ = "FCCAnalyses::AlephUnits::kBz"  # solenoid field [T]
 
@@ -152,7 +143,7 @@ class Analysis():
                             help='Run tester file only for validation against Lukas ntuples.')
         parser.add_argument('--chunks', default=None, type=int,
                             help='Number of chunks per process/file')
-        parser.add_argument('--excludeRuns', nargs='+', action='extend', default=[], type=run_number, metavar='RUN',
+        parser.add_argument('--excludeRuns', nargs='+', action='extend', default=[], type=run_list.run_number, metavar='RUN',
                             help='data only: drop these run numbers in addition to the run list (eventsProcessed still counts the raw input).')
         parser.add_argument('--noRunList', action='store_true',
                             help='data only: keep every run instead of the data/lumi run list (--excludeRuns still applies).')
@@ -175,7 +166,8 @@ class Analysis():
         # `cmdline_arg` dictionary.
         self.ana_args, unknown = parser.parse_known_args(cmdline_args['remaining'])
         if unknown:
-            print(f"----> WARNING: unrecognised arguments ignored: {' '.join(unknown)}")
+            print(f"----> ERROR: unrecognised arguments: {' '.join(unknown)}")
+            sys.exit(1)
         if not self.ana_args.doData and (self.ana_args.excludeRuns or self.ana_args.noRunList):
             print("----> ERROR: --excludeRuns and --noRunList apply to data only (--doData); Monte Carlo has no run list.")
             sys.exit(1)
@@ -208,19 +200,19 @@ class Analysis():
 
         if self.ana_args.MCflavour and not self.ana_args.MCtype:
             print("----> ERROR: Requested truth flavour filter with --MCflavour without specifying --MCtype.")
-            exit()
+            sys.exit(1)
         
         if self.ana_args.MCtype and not self.ana_args.MCtype in outnames_dict:
             print("----> ERROR: Requested unknown --MCtype. Currently only zqq available.")
-            exit()
+            sys.exit(1)
         
         if not self.ana_args.doData and not self.ana_args.MCflavour:
             print(f"----> ERROR: Requested MC run but did not specify --MCflavour. Please pick one..")
-            exit()
+            sys.exit(1)
         
         if self.ana_args.MCflavour and not self.ana_args.MCflavour in outnames_dict[self.ana_args.MCtype]:
             print(f"----> ERROR: Requested unknown --MCflavour for --MCtype {self.ana_args.MCtype}. Check the dictionary.")
-            exit()
+            sys.exit(1)
 
         #set the input/output directories:
         if self.ana_args.doData:
@@ -321,10 +313,16 @@ class Analysis():
 
     @staticmethod
     def _pv_guard(expr, empty):
-        """Empty-return entry guard on the usable-PV predicate: a finder must
-        not run on a vertex that is not converged, fully pruned, and
-        track-supported (pv_good, goodPV() in analyzer_pvnew.h)."""
+        """Empty-return entry guard on the usable-PV predicate: a finder runs only
+        on a vertex that converged, whose kept tracks are all compatible with it,
+        and that is track-supported (pv_good, goodPV() in analyzer_pvnew.h)."""
         return f"pv_good ? {expr} : {empty}"
+
+    @staticmethod
+    def _oldpv_guard(expr, empty):
+        """The same under --oldPV: a PV of fewer than kPVMinTracks tracks is the
+        default vertex at the origin (analyzer_trkaux.h)."""
+        return f"VertexObject_looseBS.ntracks >= FCCAnalyses::AlephTrkAux::kPVMinTracks ? {expr} : {empty}"
 
     def analyzers(self, df):
 
@@ -344,34 +342,10 @@ class Analysis():
         if self.ana_args.doData:
             # Run selection from the data/lumi list minus --excludeRuns (--noRunList: every run).
             # The list is read where the graph is built; $ALEPH_RUN_LIST_<year> overrides its path.
-            excluded = set(self.ana_args.excludeRuns)
-            kept = None
-            if not self.ana_args.noRunList:
-                if not run_list.has_list(self.ana_args.year):
-                    print(f"----> ERROR: no run list for year {self.ana_args.year} ({run_list.run_list_file(self.ana_args.year)}); pass --noRunList to run without one.")
-                    sys.exit(1)
-                kept = run_list.good_runs(self.ana_args.year) - excluded
-                if not kept:
-                    print("----> ERROR: the run list minus --excludeRuns is empty.")
-                    sys.exit(1)
-                print("----> " + run_list.summary(self.ana_args.year, exclude=excluded))
-            print(f"----> run selection: {'all runs' if kept is None else f'{len(kept)} listed runs'}, {len(excluded)} excluded {sorted(excluded)}")
-            if kept is not None:
-                import ROOT
-                runs = ",".join(str(r) for r in sorted(kept))
-                # one declaration per distinct run set
-                ns = "AlephRunList_" + hashlib.sha1(runs.encode()).hexdigest()[:16]
-                if not hasattr(ROOT, ns):
-                    ROOT.gInterpreter.Declare(
-                        "#include <unordered_set>\n"
-                        "namespace " + ns + " { const std::unordered_set<int> kept{" + runs + "};"
-                        " bool keep(int run) { return kept.count(run) > 0; } }")
-                df = df.Filter(f"EventHeader.runNumber.size() == 1 && {ns}::keep(EventHeader.runNumber[0])", "runList")
-            elif excluded:
-                df = df.Filter("EventHeader.runNumber.size() == 1 && " + " && ".join(f"EventHeader.runNumber[0] != {r}" for r in sorted(excluded)), "runList")
+            df = run_list.filter_runs(df, self.ana_args.year, self.ana_args.excludeRuns, self.ana_args.noRunList)
             #df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset)   || AlephSelection::sel_class_filter(17)(ClassBitset) ")
             df = df.Filter("AlephSelection::sel_class_filter(16)(ClassBitset) ")
-            df = df.Define("jetPID", "-999")
+            df = df.Define("jetPID", "-999.f")
         else:
             # Using Classbit to filter out QQbar samples and then get a specific flavor of jets
             # d-quark: 1, u-quark:2, s-quark:3, c-quark:4, b-quark: 5
@@ -424,10 +398,9 @@ class Analysis():
             df = df.Define("Beamspot_y", "0.0")
             df = df.Define("Beamspot_z", "0.0")
 
-        if self.do_pvnew:
-            df = df.Define("Beamspot_x_cm", "Beamspot_x*1e-3")
-            df = df.Define("Beamspot_y_cm", "Beamspot_y*1e-3")
-            df = df.Define("Beamspot_z_cm", "Beamspot_z*1e-3")
+        df = df.Define("Beamspot_x_cm", "Beamspot_x*1e-3")
+        df = df.Define("Beamspot_y_cm", "Beamspot_y*1e-3")
+        df = df.Define("Beamspot_z_cm", "Beamspot_z*1e-3")
 
         # ==== Track selection (to harmonize with Luka's code)
         # Note: The selection strategy here only works if there is one trackstate stored pre track.
@@ -548,14 +521,14 @@ class Analysis():
 
         # gen level vertex for checks, fill dummies for data
         if self.ana_args.doData:
-            df = df.Define("gen_vertex_x", "-999")
-            df = df.Define("gen_vertex_y", "-999")
-            df = df.Define("gen_vertex_z", "-999")
+            df = df.Define("gen_vertex_x", "-999.")
+            df = df.Define("gen_vertex_y", "-999.")
+            df = df.Define("gen_vertex_z", "-999.")
 
             # refit vertex resolution:
-            df = df.Define("res_vertex_x", "-999")
-            df = df.Define("res_vertex_y", "-999")
-            df = df.Define("res_vertex_z", "-999")
+            df = df.Define("res_vertex_x", "-999.")
+            df = df.Define("res_vertex_y", "-999.")
+            df = df.Define("res_vertex_z", "-999.")
         
         else:
             df = df.Define("pv_gen_level", f'AlephSelection::get_EventPrimaryVertexP4()({coll["GenParticles"]})')
@@ -712,6 +685,8 @@ class Analysis():
                           "Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3)")
             if self.do_pvnew:
                 phikk_expr = self._pv_guard(phikk_expr, "FCCAnalyses::AlephPhiKK::PhiKKCands{}")
+            else:
+                phikk_expr = self._oldpv_guard(phikk_expr, "FCCAnalyses::AlephPhiKK::PhiKKCands{}")
             df = df.Define("PhiKKCands_event", phikk_expr)
             df = df.Define("n_phikk_event", "int(PhiKKCands_event.invM.size())")
             for _b in PHIKK_CAND_BRANCHES:
@@ -734,6 +709,8 @@ class Analysis():
                           f"{BZ}, Beamspot_x*1e-3, Beamspot_y*1e-3, Beamspot_z*1e-3)")
             if self.do_pvnew:
                 dstar_expr = self._pv_guard(dstar_expr, "FCCAnalyses::AlephDstar::DstarCands{}")
+            else:
+                dstar_expr = self._oldpv_guard(dstar_expr, "FCCAnalyses::AlephDstar::DstarCands{}")
             df = df.Define("DstarCands_event", dstar_expr)
             df = df.Define("n_dstar_event", "int(DstarCands_event.ds.kin.m_kpi.size())")
             # two-track fits actually performed: the combinatorial cost
@@ -1030,6 +1007,9 @@ class Analysis():
             "Beamspot_x",
             "Beamspot_y",
             "Beamspot_z",
+            "Beamspot_x_cm",
+            "Beamspot_y_cm",
+            "Beamspot_z_cm",
             "Vertex_refit_x",
             "Vertex_refit_y",
             "Vertex_refit_z",

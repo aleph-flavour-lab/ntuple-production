@@ -305,7 +305,7 @@ bool perigeeCovPositiveDefinite(const Cov& cov) {
   return true;
 }
 
-/// Base track selection: chi2/ndf <= 10, a finite positive-definite perigee covariance, at least `min_tpc_hits` TPC hits and |z0| <= `max_abs_z0`.
+/// Base track selection: chi2/ndf <= 10, finite track-state parameters, a finite positive-definite perigee covariance, at least `min_tpc_hits` TPC hits and |z0| <= `max_abs_z0`.
 SelectedTracks
 select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
               const ROOT::VecOps::RVec<edm4hep::TrackState>& trackstates_in,
@@ -354,6 +354,13 @@ select_tracks_baseline(const ROOT::VecOps::RVec<edm4hep::TrackData>& tracks_in,
 
       // Reminder covMatrix convention: https://bib-pubdb1.desy.de/record/81214/files/LC-DET-2006-004%5B1%5D.pdf, sec 5
       if (!perigeeCovPositiveDefinite(trackstate.covMatrix)) {
+        continue;
+      }
+      // later stages find a selected state again by comparing these fields by value, which fails for a NaN
+      if (!std::isfinite(trackstate.D0) || !std::isfinite(trackstate.phi) || !std::isfinite(trackstate.omega) ||
+          !std::isfinite(trackstate.tanLambda) || !std::isfinite(trackstate.time) ||
+          !std::isfinite(trackstate.referencePoint.x) || !std::isfinite(trackstate.referencePoint.y) ||
+          !std::isfinite(trackstate.referencePoint.z)) {
         continue;
       }
       if (!std::isfinite(trackstate.Z0) || std::abs(trackstate.Z0) > max_abs_z0) {
@@ -873,8 +880,9 @@ flipD0_copy(const ROOT::VecOps::RVec<edm4hep::TrackState>& tracks) {
 // construction, so this is not needed there.
 //
 // One entry point: get_beamspot(run). It loads and caches data/beamspot.json on
-// first use and returns the position for that run, or (0,0,0) if the run is not
-// listed (same fallback as the reference implementation).
+// first use and returns the position for that run. A file that cannot be read or
+// a run that is not listed throws, which stops the job: the origin would be wrong
+// for data, and simulation does not call it.
 //
 // Units: the json stores cm. The FCCAnalyses vertex fitters want the beamspot
 // position in the same units as their widths, which we pass as "10 um"
@@ -892,7 +900,7 @@ TVector3 get_beamspot(int run, bool in_10um = true, const std::string &path = ""
   // (C++11 magic statics), which matters because RDataFrame runs multi-threaded.
   // Note: only the FIRST call's `path` is used - later calls reuse the cache.
   static const std::map<int, TVector3> coords = [path]() {
-    std::map<int, TVector3> m;   // cm; left empty if anything goes wrong -> origin everywhere
+    std::map<int, TVector3> m;   // cm
 
     std::string file = path;
     if (file.empty()) {
@@ -908,10 +916,7 @@ TVector3 get_beamspot(int run, bool in_10um = true, const std::string &path = ""
 
     std::ifstream in(file);
     if (!in.good()) {
-      std::cerr << "WARNING [get_beamspot]: could not open '" << file
-                << "' - using a beamspot at the origin for every run. "
-                << "That is correct for simulation but WRONG for data." << std::endl;
-      return m;
+      throw std::runtime_error("get_beamspot: could not open the beamspot file '" + file + "'");
     }
     try {
       nlohmann::json j;
@@ -923,18 +928,18 @@ TVector3 get_beamspot(int run, bool in_10um = true, const std::string &path = ""
             TVector3(v["x"].get<double>(), v["y"].get<double>(), v["z"].get<double>());
       }
     } catch (const std::exception &e) {
-      std::cerr << "WARNING [get_beamspot]: failed to parse '" << file
-                << "' (" << e.what() << ") - using the origin for every run." << std::endl;
-      return std::map<int, TVector3>{};
+      throw std::runtime_error("get_beamspot: failed to parse the beamspot file '" + file + "' (" + e.what() + ")");
     }
     std::cout << "INFO [get_beamspot]: loaded " << m.size()
               << " runs from " << file << std::endl;
     return m;
   }();
 
-  TVector3 bs(0., 0., 0.);   // fallback: unknown run, or file missing/unparsable
   auto it = coords.find(run);
-  if (it != coords.end()) bs = it->second;
+  if (it == coords.end()) {
+    throw std::runtime_error("get_beamspot: run " + std::to_string(run) + " is not in the beamspot file");
+  }
+  const TVector3 bs = it->second;
   return in_10um ? bs * 1e3 : bs;   // cm -> 10 um
 }
 
@@ -1336,6 +1341,7 @@ V0rejection_ALEPH(
     double solenoidBz = AlephUnits::kBz,
     bool inclusive = false)
 {
+    namespace LV0 = FCCAnalyses::AlephLegacyV0;
     int nTr = np_tracks.size();
     ROOT::VecOps::RVec<bool> isInV0(nTr, false);
     if (nTr < 2) return np_tracks;
@@ -1355,14 +1361,14 @@ V0rejection_ALEPH(
             tr_pair[1] = np_tracks[j];
 
             auto cand = FCCAnalyses::VertexFinderLCFIPlus::get_V0candidate(
-                V0_vtx, tr_pair, PV, true, 10., solenoidBz);
+                V0_vtx, tr_pair, PV, true, LV0::kChi2Cut, solenoidBz);
             if (cand.size() == 0) continue;
 
             // ALEPH-tuned tight constraints (widened mass windows, reduced distance minimum)
-            bool isKs    = cand[0]>0.453 && cand[0]<0.553 && cand[4]>0.1 && cand[5]>0.999;
-            bool isLam1  = cand[1]>1.06  && cand[1]<1.16  && cand[4]>0.1 && cand[5]>0.99995;
-            bool isLam2  = cand[2]>1.06  && cand[2]<1.16  && cand[4]>0.1 && cand[5]>0.99995;
-            bool isGamma = cand[3]<0.005 && cand[4]>0.9   && cand[5]>0.99995;
+            bool isKs    = cand[0]>LV0::kTightKsMLo  && cand[0]<LV0::kTightKsMHi  && cand[4]>LV0::kDisMinKs  && cand[5]>LV0::kTightCosKs;
+            bool isLam1  = cand[1]>LV0::kTightLamMLo && cand[1]<LV0::kTightLamMHi && cand[4]>LV0::kDisMinLam && cand[5]>LV0::kTightCosLam;
+            bool isLam2  = cand[2]>LV0::kTightLamMLo && cand[2]<LV0::kTightLamMHi && cand[4]>LV0::kDisMinLam && cand[5]>LV0::kTightCosLam;
+            bool isGamma = cand[3]<LV0::kTightGammaMHi && cand[4]>LV0::kDisMinGamma && cand[5]>LV0::kTightCosGamma;
 
             if (isKs || isLam1 || isLam2 || isGamma) {
                 isInV0[i] = true;

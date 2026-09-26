@@ -10,7 +10,16 @@ required); run from this directory, the headers are resolved relative to it:
 
 Options after `--`: --doData (no truth branches, data beam spot), --MCflavour N
 (MC only: keep events of one primary quark flavour, 1-5 = d u s c b, default
-all), --beamspotJson PATH (data only).
+all), --year, --noRunList and --excludeRuns RUN [RUN ...] (the run selection of
+stage1, from run_list.py; the last two data only), --beamspotJson PATH (data
+only). An unknown option is an error.
+
+The events kept are stage1's: on data the runs of the run list and event class
+16, on MC the class-16 events with a primary quark (of flavour N with
+--MCflavour, as stage1; of any flavour without it), and in both at least two
+jets. The ks_* entries then equal stage1's v0n_* entries at v0n_pdg == 310 &&
+v0n_tight == 1, event by event, for stage1 run with its default reconstruction
+options (in particular without --oldPV and --oldTrackSel).
 
 Reconstruction chain of stage1's default, every Define written out; the
 constants are the ones stage1 uses, named from aleph_units.h (field) and
@@ -49,6 +58,9 @@ and on MC ks_trk{1,2}_truePdg.
 import os
 import sys
 from argparse import ArgumentParser
+# fccanalysis loads this file by path, so this directory's modules are made importable here
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import run_list
 
 DATA_CLASS_BIT = 16         # event class kept on data (as in stage1)
 # per-run beam-spot positions of the data
@@ -63,9 +75,21 @@ class Analysis():
                             help='Run on data: class filter and beam spot from the JSON, no truth branches.')
         parser.add_argument('--MCflavour', default=None, type=int,
                             help='MC only: keep events of this primary quark flavour (1 = dd ... 5 = bb); default all.')
+        parser.add_argument('--year', default='1994',
+                            help='Year of the run list (data).')
+        parser.add_argument('--excludeRuns', nargs='+', action='extend', default=[], type=run_list.run_number, metavar='RUN',
+                            help='Data only: drop these run numbers in addition to the run list.')
+        parser.add_argument('--noRunList', action='store_true',
+                            help='Data only: keep every run instead of the run list (--excludeRuns still applies).')
         parser.add_argument('--beamspotJson', default=os.environ.get("ALEPH_BEAMSPOT_JSON", BEAMSPOT_JSON),
                             help='Data only: per-run beam-spot positions.')
-        self.ana_args, _ = parser.parse_known_args(cmdline_args['remaining'])
+        self.ana_args, unknown = parser.parse_known_args(cmdline_args['remaining'])
+        if unknown:
+            print(f"----> ERROR: unrecognised arguments: {' '.join(unknown)}")
+            sys.exit(1)
+        if not self.ana_args.doData and (self.ana_args.excludeRuns or self.ana_args.noRunList):
+            print("----> ERROR: --excludeRuns and --noRunList apply to data only (--doData).")
+            sys.exit(1)
 
         # input and output come from the fccanalysis command line: no process list
         if not cmdline_args.get('input') and not cmdline_args.get('input_file_list'):
@@ -77,17 +101,24 @@ class Analysis():
 
     def analyzers(self, df):
 
-        # ---- event filter -----------------------------------------------------
+        # ---- event filter (stage1's) ------------------------------------------
         if self.ana_args.doData:
+            df = run_list.filter_runs(df, self.ana_args.year, self.ana_args.excludeRuns, self.ana_args.noRunList)
             df = df.Filter(f"AlephSelection::sel_class_filter({DATA_CLASS_BIT})(ClassBitset)")
-        elif self.ana_args.MCflavour is not None:
+        else:
+            # class 16 with a primary quark: getJetPID is -1 otherwise
             df = df.Define("jetPID", "AlephSelection::getJetPID(ClassBitset, MCParticles)")
-            df = df.Filter(f"jetPID == {self.ana_args.MCflavour}")
+            df = df.Filter("jetPID > 0" if self.ana_args.MCflavour is None else f"jetPID == {self.ana_args.MCflavour}")
+        # at least two jets of the exclusive two-jet clustering of all particle-flow candidates
+        df = df.Define("pjetc", "JetClusteringUtils::set_pseudoJets(ReconstructedParticle::get_px(RecoParticles), ReconstructedParticle::get_py(RecoParticles), "
+                                "ReconstructedParticle::get_pz(RecoParticles), ReconstructedParticle::get_e(RecoParticles))")
+        df = df.Define("_jet", "JetClustering::clustering_ee_kt(2, 2, 1, 0)(pjetc)")
+        df = df.Filter("JetConstituentsUtils::count_jets(JetConstituentsUtils::build_constituents_cluster(RecoParticles, JetClusteringUtils::get_constituents(_jet))) > 1")
         df = df.Define("event_number", "EventHeader.eventNumber")
         df = df.Define("run_number", "EventHeader.runNumber")
 
         # ---- track selection --------------------------------------------------
-        # baseline: positive-definite covariance, chi2 < 10, TPC hits and |z0|; .tracks,
+        # baseline: finite track state, positive-definite covariance, chi2/ndf <= 10, TPC hits and |z0|; .tracks,
         # .trackStates and .origIdx (index into Tracks) share one order
         df = df.Define("tracks_selected_baseline_result", "AlephSelection::select_tracks_baseline(Tracks, _Tracks_trackStates, _Tracks_subdetectorHitNumbers, AlephSelection::kTrackMinTPCHits, AlephSelection::kTrackMaxAbsZ0)")
         df = df.Define("trackstates_selected_baseline", "tracks_selected_baseline_result.trackStates")
@@ -118,7 +149,7 @@ class Analysis():
         df = df.Define("trackstates_selected_for_vertexfit_flipped", "AlephSelection::flipD0_copy(trackstates_selected_for_vertexfit)")
         df = df.Define("trackstates_selected_baseline_flipped", "AlephSelection::flipD0_copy(trackstates_selected_baseline)")
         # beam-spot-constrained fit that prunes the incompatible tracks;
-        # pv_good = converged, fully pruned and supported by at least two tracks
+        # pv_good (goodPV): converged, every kept track compatible, supported by at least two tracks
         df = df.Define("PVSelNew", "FCCAnalyses::AlephPVNew::select_primary_tracks(trackstates_selected_for_vertexfit_flipped, "
                                    "FCCAnalyses::AlephPVNew::beamSpot(Beamspot_x_cm, Beamspot_y_cm, Beamspot_z_cm))")
         df = df.Define("pv_good", "int(FCCAnalyses::AlephPVNew::goodPV(PVSelNew))")
