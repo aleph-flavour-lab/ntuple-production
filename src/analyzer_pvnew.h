@@ -663,7 +663,7 @@ inline VertexingUtils::FCCAnalysesVertex toFCCVertex(const PVSelResult& sel) {
 }
 
 // Primary-track split: kept set of the returned fit if it converged, else all
-// tracks vs the beam spot, spread along z by the constraint's length; empty if < 2.
+// tracks vs the beam spot, spread by the constraint's widths; empty if < 2.
 inline RVec<edm4hep::TrackState> primaryTracksFromSel(
     const RVec<edm4hep::TrackState>& tracks, const PVSelResult& sel,
     double bx, double by, double bz, double chi2_max = PVN_CHI2_MAX,
@@ -678,6 +678,8 @@ inline RVec<edm4hep::TrackState> primaryTracksFromSel(
   const Vec3 x(bx, by, bz);
   std::vector<double> L(ts.size(), 0.0);
   Mat3 lum = Mat3::Zero();
+  lum(0, 0) = PVN_BS_SIGMA_X * PVN_BS_SIGMA_X;
+  lum(1, 1) = PVN_BS_SIGMA_Y * PVN_BS_SIGMA_Y;
   lum(2, 2) = PVN_BS_SIGMA_Z * PVN_BS_SIGMA_Z;
   detail::TrackTerms tt;
   detail::track_terms(ts, x, L, cfg, tt, &lum);
