@@ -304,6 +304,9 @@ def get_hist_from_tree(proc_name, input_filepath, plot_specs, norm_file=None,
 
     # get the dataframe and fill the histogram model
     rdf = get_rdf(input_filepath, tree_name)
+    if rdf is None:
+        # nothing usable in this sample: an empty histogram, which the caller skips
+        return hist_model.GetHistogram()
 
     # mask branches for jet constituent selection if requested:
     if selection and branches_to_mask:
