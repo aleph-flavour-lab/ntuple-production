@@ -934,14 +934,20 @@ class Analysis():
 
 
         ### Thrust variables
-        df = df.Define("EVT_thrustNP",      'Algorithms::minimize_thrust("Minuit2","Migrad")(RP_px, RP_py, RP_pz)')
+        # Exact thrust over all particle pairs: {T, x, y, z} with a unit axis, {-1, -1, -1, -1} for < 2 particles.
+        # Repacked in the {T, x, ex, y, ey, z, ez} layout read by getAxisCosTheta and getThrustPointing
+        # (errors 0; axis (0, 0, 0) when T < 0).
+        df = df.Define("EVT_thrustExact",   "Algorithms::calculate_thrust()(RP_px, RP_py, RP_pz)")
+        df = df.Define("EVT_thrustNP",      "EVT_thrustExact[0] < 0 ? ROOT::VecOps::RVec<float>{-1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f} : "
+                                            "ROOT::VecOps::RVec<float>{EVT_thrustExact[0], EVT_thrustExact[1], 0.f, EVT_thrustExact[2], 0.f, EVT_thrustExact[3], 0.f}")
         df = df.Define("RP_thrustangleNP",  'Algorithms::getAxisCosTheta(EVT_thrustNP, RP_px, RP_py, RP_pz)')
         df = df.Define("EVT_thrust",        'Algorithms::getThrustPointing(1.)(RP_thrustangleNP, RP_e, EVT_thrustNP)')
-        df = df.Define("EVT_Thrust_Mag",    "EVT_thrust.at(0)")  # thrust magnitude T (keep if you want it)
+        # T; unit axis pointing to the lower-energy hemisphere. Fewer than 2 particles: T = -1, axis (0, 0, 0), cosTheta = -2.
+        df = df.Define("EVT_Thrust_Mag",    "EVT_thrust.at(0)")
         df = df.Define("EVT_Thrust_X",      "EVT_thrust.at(1)")
         df = df.Define("EVT_Thrust_Y",      "EVT_thrust.at(3)")
         df = df.Define("EVT_Thrust_Z",      "EVT_thrust.at(5)")
-        df = df.Define("EVT_Thrust_cosTheta", "EVT_Thrust_Z / sqrt(EVT_Thrust_X*EVT_Thrust_X + EVT_Thrust_Y*EVT_Thrust_Y + EVT_Thrust_Z*EVT_Thrust_Z)")
+        df = df.Define("EVT_Thrust_cosTheta", "EVT_Thrust_Mag < 0 ? -2.f : EVT_Thrust_Z / sqrt(EVT_Thrust_X*EVT_Thrust_X + EVT_Thrust_Y*EVT_Thrust_Y + EVT_Thrust_Z*EVT_Thrust_Z)")
         df = df.Define("EVT_Evis",          "Sum(RP_e)")  # total visible energy: sum over all particle-flow candidates [GeV]
         
 
