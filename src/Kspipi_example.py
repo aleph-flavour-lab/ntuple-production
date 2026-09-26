@@ -63,6 +63,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import run_list
 
 DATA_CLASS_BIT = 16         # event class kept on data (as in stage1)
+MC_FLAVOURS = {1: "dd", 2: "uu", 3: "ss", 4: "cc", 5: "bb"}   # --MCflavour values (as in stage1)
 # per-run beam-spot positions of the data
 BEAMSPOT_JSON = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/utils/beamspot_position_data/beamspot.json"
 
@@ -89,6 +90,12 @@ class Analysis():
             sys.exit(1)
         if not self.ana_args.doData and (self.ana_args.excludeRuns or self.ana_args.noRunList):
             print("----> ERROR: --excludeRuns and --noRunList apply to data only (--doData).")
+            sys.exit(1)
+        if self.ana_args.doData and self.ana_args.MCflavour is not None:
+            print("----> WARNING: Incompatible input arguments: --MCflavour defined with --doData, will be ignored.")
+        if self.ana_args.MCflavour is not None and self.ana_args.MCflavour not in MC_FLAVOURS:
+            print(f"----> ERROR: Requested unknown --MCflavour {self.ana_args.MCflavour}. Options: "
+                  + ", ".join(f"{k} = {v}" for k, v in MC_FLAVOURS.items()))
             sys.exit(1)
 
         # input and output come from the fccanalysis command line: no process list

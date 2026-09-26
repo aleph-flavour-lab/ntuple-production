@@ -98,7 +98,8 @@ def run_number(text):
 
 def filter_runs(df, year, exclude=(), all_runs=False):
     """Run selection of a data RDataFrame: the selected runs of the year's list minus `exclude`
-    (all_runs: every run minus `exclude`). The list is read here, i.e. where the graph is built."""
+    (all_runs: every run minus `exclude`). An event without exactly one run number is an error, like an input
+    without any selected event; both are counted in one event loop. The list is read here, i.e. where the graph is built."""
     excluded = set(exclude)
     kept = None
     if not all_runs:
@@ -111,6 +112,8 @@ def filter_runs(df, year, exclude=(), all_runs=False):
             sys.exit(1)
         print("----> " + summary(year, exclude=excluded))
     print(f"----> run selection: {'all runs' if kept is None else f'{len(kept)} listed runs'}, {len(excluded)} excluded {sorted(excluded)}")
+    # booked before the selection: the same event loop fills this count and the one below
+    n_malformed = df.Filter("EventHeader.runNumber.size() != 1").Count()
     if kept is not None:
         import ROOT
         runs = ",".join(str(r) for r in sorted(kept))
@@ -125,9 +128,13 @@ def filter_runs(df, year, exclude=(), all_runs=False):
     elif excluded:
         df = df.Filter("EventHeader.runNumber.size() == 1 && " + " && ".join(f"EventHeader.runNumber[0] != {r}" for r in sorted(excluded)), "runList")
     else:
-        return df
+        df = df.Filter("EventHeader.runNumber.size() == 1", "runList")
+    n_selected = df.Count()
+    if n_malformed.GetValue():
+        print(f"----> ERROR: {n_malformed.GetValue()} events of the input do not have exactly one run number; nothing to write.")
+        sys.exit(1)
     # without an event left the output would have no usable events tree
-    if not df.Count().GetValue():
+    if not n_selected.GetValue():
         print("----> ERROR: no event of the input is in a selected run (its runs are all outside the run list or excluded); nothing to write.")
         sys.exit(1)
     return df
