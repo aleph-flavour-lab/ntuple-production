@@ -293,6 +293,10 @@ Per leg, for the φ legs `phikk_trk{1,2}_*` (`trk1` the higher-momentum one) and
 
 `EVT_Evis` is the total visible energy of the event in GeV: the sum of the energies of all particle-flow candidates of the event (`RecoParticles`). The missing energy, √s − `EVT_Evis`, is left to the analysis (the per-run centre-of-mass energy of the data is `ecm_gev` in `data/lumi/run_list_<year>.csv`).
 
+### Event thrust
+
+`EVT_Thrust_Mag` is the thrust T of the particle-flow candidates of the event, computed exactly with `Algorithms::calculate_thrust`. `EVT_Thrust_X/Y/Z` is the thrust axis as a unit vector, oriented towards the hemisphere with the lower energy, and `EVT_Thrust_cosTheta` is its polar-angle cosine. An event with fewer than two candidates would get T = −1, axis (0, 0, 0) and `EVT_Thrust_cosTheta` = −2; the event selection (at least two jets) keeps no such event.
+
 ### Run on batch:
 ```
 fccanalysis submit stage1.py -- --tag VXX-XX --MCflavour X --batch --chunks X
