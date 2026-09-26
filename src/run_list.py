@@ -125,10 +125,10 @@ def filter_runs(df, year, exclude=(), all_runs=False):
     elif excluded:
         df = df.Filter("EventHeader.runNumber.size() == 1 && " + " && ".join(f"EventHeader.runNumber[0] != {r}" for r in sorted(excluded)), "runList")
     else:
-        return df
+        df = df.Filter("EventHeader.runNumber.size() == 1", "runList")
     # without an event left the output would have no usable events tree
     if not df.Count().GetValue():
-        print("----> ERROR: no event of the input is in a selected run (its runs are all outside the run list or excluded); nothing to write.")
+        print("----> ERROR: no event of the input is in a selected run (its runs are all outside the run list or excluded, or no event has a single run number); nothing to write.")
         sys.exit(1)
     return df
 
