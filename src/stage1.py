@@ -700,7 +700,7 @@ class Analysis():
 
         ############################################# D*->D0(K pi) pi_slow module #############################################
         if self.do_dstar:
-            # primary/secondary class of every pool track (0 prim / 1 sec / 2 neither)
+            # primary/secondary class of every pool track (0 prim / 1 sec)
             df = df.Define("dstar_pool_all", "FCCAnalyses::AlephDstar::poolClass(selBaselineOrigIdx, prim2origIdx, sec2origIdx)")
             # every selection value is a constant in analyzer_dstar.h
             dstar_expr = ("FCCAnalyses::AlephDstar::findDstar(trackstates_selected_baseline_flipped, "
