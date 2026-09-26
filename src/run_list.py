@@ -98,7 +98,8 @@ def run_number(text):
 
 def filter_runs(df, year, exclude=(), all_runs=False):
     """Run selection of a data RDataFrame: the selected runs of the year's list minus `exclude`
-    (all_runs: every run minus `exclude`). The list is read here, i.e. where the graph is built."""
+    (all_runs: every run minus `exclude`); in every case only events with exactly one run number are kept,
+    and the kept events are counted once. The list is read here, i.e. where the graph is built."""
     excluded = set(exclude)
     kept = None
     if not all_runs:

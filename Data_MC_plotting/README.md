@@ -24,7 +24,7 @@ The config file `plotting_config_stage1.py` is used to plot variables from the `
 
 ### Inference 
 
-No config for the ntuples written by the tagger inference is included. Their plots are defined in `Zqq_plots.Zqq_data_MC_inference`; to draw them, write a config like `plotting_config_stage1.py` with `plots_dict = Zqq_plots.Zqq_data_MC_inference`.
+No config for the ntuples written by the tagger inference is included. Their plots are defined in `Zqq_plots.Zqq_data_MC_inference`; to draw them, write a config like `plotting_config_stage1.py` with `plots_dict = Zqq_plots.Zqq_data_MC_inference`, `ana_stage` and the input paths pointing to the inference ntuples, and a `selection` / `branches_to_mask` suited to them (the stage1 config applies a dE/dx constituent selection).
 
 ## Config variables
 
