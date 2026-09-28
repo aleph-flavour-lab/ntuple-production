@@ -57,6 +57,11 @@ inline double trackDeltaR(const edm4hep::TrackState& a, const edm4hep::TrackStat
       .DeltaR(TVector3(std::cos(b.phi), std::sin(b.phi), b.tanLambda));
 }
 
+// u . T > 0: u in the hemisphere T points to (all u on one side if T is zero or undefined)
+inline bool thrustSide(const TVector3& u, const TVector3& T) {
+  return u.Dot(T) > 0.;
+}
+
 // 3D flight significance of v from PV, summed position covariances; 0 if undefined
 inline double flightSig(const VertexingUtils::FCCAnalysesVertex& v,
                         const VertexingUtils::FCCAnalysesVertex& PV) {
@@ -152,8 +157,8 @@ inline SVSeeds svSeedPass(const RVec<edm4hep::TrackState>& np_tracks,
   return out;
 }
 
-// Secondary vertices of np_tracks (pass = its svSeedPass), V0 daughters masked per mask_mode;
-// invM = all-pion mass, reco_ind indexes np_tracks.
+// Secondary vertices of np_tracks (pass = its svSeedPass), V0 daughters masked per mask_mode,
+// growth kept in thrustAxis hemispheres; invM = all-pion mass, reco_ind indexes np_tracks.
 inline VertexingUtils::FCCAnalysesV0 findSVs(
     const RVec<edm4hep::TrackState>& np_tracks,
     const VertexingUtils::FCCAnalysesVertex& PV,
@@ -161,7 +166,8 @@ inline VertexingUtils::FCCAnalysesV0 findSVs(
     const RVec<int>& v0_tight,
     int mask_mode,
     double solenoidBz,
-    const SVSeeds& pass) {
+    const SVSeeds& pass,
+    const TVector3& thrustAxis) {
 
   VertexingUtils::FCCAnalysesV0 result;
   const int nTr = np_tracks.size();
@@ -184,15 +190,27 @@ inline VertexingUtils::FCCAnalysesV0 findSVs(
   trial.reserve(nTr);
   const std::vector<char>& pairok = pass.pairok;
 
-  // Grow a seed by the best-chi2 linked track
+  std::vector<TVector3> trkDir(nTr);
+  std::vector<bool> trkSide(nTr);
+  for (int k = 0; k < nTr; ++k) {
+    const edm4hep::TrackState& t = np_tracks[k];
+    trkDir[k] = TVector3(std::cos(t.phi), std::sin(t.phi), t.tanLambda);
+    trkSide[k] = thrustSide(trkDir[k], thrustAxis);
+  }
+
+  // Grow a seed by the best-chi2 linked track in its thrust hemisphere, along the candidate
   auto growCand = [&](const SVCand& seed, const std::vector<bool>& blocked) {
     SVCand c = seed;
+    const bool seedSide = thrustSide(AlephTrkAux::candMomentum(seed.vtx), thrustAxis);
     bool grew = true;
     while (grew && (int)c.trk.size() < SVN_MAX_TRK) {
       grew = false;
       SVCand best = c;
+      const TVector3 candP = AlephTrkAux::candMomentum(c.vtx);
       for (int k = 0; k < nTr; ++k) {
         if (blocked[k]) continue;
+        if (trkSide[k] != seedSide) continue;
+        if (!(trkDir[k].Dot(candP) > 0.)) continue;
         if (std::find(c.trk.begin(), c.trk.end(), k) != c.trk.end()) continue;
         bool linked = false;
         for (int m0 : c.trk)

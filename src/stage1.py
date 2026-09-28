@@ -417,6 +417,18 @@ class Analysis():
         df = df.Define("jet_p4", "JetConstituentsUtils::compute_tlv_jets(jets)" )
         df = df.Define("event_invariant_mass", "JetConstituentsUtils::InvariantMass(jet_p4[0], jet_p4[1])")
 
+        ### Thrust variables
+        # exact thrust {T, x, y, z}, repacked into the {T, x, ex, y, ey, z, ez} layout of getAxisCosTheta/getThrustPointing
+        df = df.Define("EVT_thrustExact",   "Algorithms::calculate_thrust()(RP_px, RP_py, RP_pz)")
+        df = df.Define("EVT_thrustNP",      "EVT_thrustExact[0] < 0 ? ROOT::VecOps::RVec<float>{-1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f} : "
+                                            "ROOT::VecOps::RVec<float>{EVT_thrustExact[0], EVT_thrustExact[1], 0.f, EVT_thrustExact[2], 0.f, EVT_thrustExact[3], 0.f}")
+        df = df.Define("RP_thrustangleNP",  'Algorithms::getAxisCosTheta(EVT_thrustNP, RP_px, RP_py, RP_pz)')
+        df = df.Define("EVT_thrust",        'Algorithms::getThrustPointing(1.)(RP_thrustangleNP, RP_e, EVT_thrustNP)')
+        df = df.Define("EVT_Thrust_Mag",    "EVT_thrust.at(0)")
+        df = df.Define("EVT_Thrust_X",      "EVT_thrust.at(1)")
+        df = df.Define("EVT_Thrust_Y",      "EVT_thrust.at(3)")
+        df = df.Define("EVT_Thrust_Z",      "EVT_thrust.at(5)")
+        df = df.Define("EVT_Thrust_cosTheta", "EVT_Thrust_Mag < 0 ? -2.f : EVT_Thrust_Z / sqrt(EVT_Thrust_X*EVT_Thrust_X + EVT_Thrust_Y*EVT_Thrust_Y + EVT_Thrust_Z*EVT_Thrust_Z)")
 
         # per-run beamspot centre, 10 um units; override the json with $ALEPH_BEAMSPOT_JSON
         if self.ana_args.doData:
@@ -710,7 +722,8 @@ class Analysis():
             else:
                 v0_mask = f"FCCAnalyses::VertexingUtils::FCCAnalysesV0{{}}, ROOT::VecOps::RVec<int>{{}}, {SVNEW}::SVN_MASK_NONE"
             seed_expr = f"{SVNEW}::svSeedPass(SecondaryTracks_looseBS, VertexObject_looseBS, {BZ})"
-            svn_expr = f"{SVNEW}::findSVs(SecondaryTracks_looseBS, VertexObject_looseBS, {v0_mask}, {BZ}, SVSeeds_event)"
+            svn_expr = (f"{SVNEW}::findSVs(SecondaryTracks_looseBS, VertexObject_looseBS, {v0_mask}, {BZ}, SVSeeds_event, "
+                        "TVector3(EVT_Thrust_X, EVT_Thrust_Y, EVT_Thrust_Z))")
             if self.do_pvnew:
                 seed_expr = self._pv_guard(seed_expr, f"{SVNEW}::SVSeeds{{}}")
                 svn_expr = self._pv_guard(svn_expr, "FCCAnalyses::VertexingUtils::FCCAnalysesV0{}")
@@ -996,18 +1009,6 @@ class Analysis():
 
 
 
-        ### Thrust variables
-        # exact thrust {T, x, y, z}, repacked into the {T, x, ex, y, ey, z, ez} layout of getAxisCosTheta/getThrustPointing
-        df = df.Define("EVT_thrustExact",   "Algorithms::calculate_thrust()(RP_px, RP_py, RP_pz)")
-        df = df.Define("EVT_thrustNP",      "EVT_thrustExact[0] < 0 ? ROOT::VecOps::RVec<float>{-1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f} : "
-                                            "ROOT::VecOps::RVec<float>{EVT_thrustExact[0], EVT_thrustExact[1], 0.f, EVT_thrustExact[2], 0.f, EVT_thrustExact[3], 0.f}")
-        df = df.Define("RP_thrustangleNP",  'Algorithms::getAxisCosTheta(EVT_thrustNP, RP_px, RP_py, RP_pz)')
-        df = df.Define("EVT_thrust",        'Algorithms::getThrustPointing(1.)(RP_thrustangleNP, RP_e, EVT_thrustNP)')
-        df = df.Define("EVT_Thrust_Mag",    "EVT_thrust.at(0)")
-        df = df.Define("EVT_Thrust_X",      "EVT_thrust.at(1)")
-        df = df.Define("EVT_Thrust_Y",      "EVT_thrust.at(3)")
-        df = df.Define("EVT_Thrust_Z",      "EVT_thrust.at(5)")
-        df = df.Define("EVT_Thrust_cosTheta", "EVT_Thrust_Mag < 0 ? -2.f : EVT_Thrust_Z / sqrt(EVT_Thrust_X*EVT_Thrust_X + EVT_Thrust_Y*EVT_Thrust_Y + EVT_Thrust_Z*EVT_Thrust_Z)")
         df = df.Define("EVT_Evis",          "Sum(RP_e)")  # total visible energy: sum over all particle-flow candidates [GeV]
         
 
