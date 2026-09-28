@@ -1362,7 +1362,7 @@ V0rejection_ALEPH(
 
             auto cand = FCCAnalyses::VertexFinderLCFIPlus::get_V0candidate(
                 V0_vtx, tr_pair, PV, true, LV0::kChi2Cut, solenoidBz);
-            if (cand.size() == 0) continue;
+            if (cand.empty() || cand[0] == -1) continue;  // failed the chi2 cut: every entry is -1
 
             // ALEPH-tuned tight constraints (widened mass windows, reduced distance minimum)
             bool isKs    = cand[0]>LV0::kTightKsMLo  && cand[0]<LV0::kTightKsMHi  && cand[4]>LV0::kDisMinKs  && cand[5]>LV0::kTightCosKs;

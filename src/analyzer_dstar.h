@@ -190,7 +190,7 @@ inline DstarCands findDstar(
   auto oidx = [&](int k) {
     return (k >= 0 && k < (int)orig_idx.size()) ? orig_idx[k] : -1;
   };
-  // SEC = in the secondary set; "neither" tracks count as primary-like here
+  // SEC = in the secondary set
   auto isSec = [&](int k) { return k < (int)pool.size() && pool[k] == 1; };
 
   // momentum prefilter at the softest floor; canKPi marks the K/pi-capable
@@ -392,7 +392,8 @@ inline DstarCands findDstar(
   return out;
 }
 
-// Staging class of each entry: 0 = primary set, 1 = secondary set, 2 = neither.
+// Staging class of each entry: 0 = primary set, 1 = secondary set; every baseline track
+// is in one of the two, so the default 2 (neither) does not occur.
 inline RVec<int> poolClass(const RVec<int>& orig_idx,
                            const RVec<int>& prim_orig,
                            const RVec<int>& sec_orig) {

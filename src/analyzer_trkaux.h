@@ -351,7 +351,7 @@ struct TrkBlock {
   RVec<int>   nvdet, nitc;
   RVec<float> chi2ndf;   // track fit chi2/ndf
   RVec<int>   isprim;    // 1 = in the fitted primary set
-  RVec<int>   pool;      // 0 = primary, 1 = secondary, 2 = neither, -1 = unstaged
+  RVec<int>   pool;      // 0 = primary, 1 = secondary, -1 = unstaged
 };
 
 inline void reserveTrk(TrkBlock& b, size_t n) {
