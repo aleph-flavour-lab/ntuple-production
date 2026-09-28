@@ -175,7 +175,7 @@ The run beamspot position is written twice: `Beamspot_x`, `Beamspot_y`, `Beamspo
 
 | flag | meaning |
 | --- | --- |
-| `--oldPV` | legacy PV chain, unchanged from before this module: `get_PrimaryTracks` + `VertexFitter_Tk`, with the origin-referenced `|D0| < 0.75 cm`, `|Z0| < 2 cm` pre-selection instead of the beamspot-referenced one. No `pv_*` flag branches. The legacy vertex, its primary/secondary track split and the legacy `sv_*`/`v0_*` blocks are computed as before this module; the covariance and χ² branches above are added. Note that the beamspot constraint of the `get_PrimaryTracks` selection fit is passed in 10 µm units while its track parameters are read in cm, so that constraint is off by a factor 1000 and is effectively absent; the final `VertexFitter_Tk` fit is unaffected. Its pre-selection window, beamspot widths and track-compatibility cut are the named constants of [`aleph_reco_config.h`](aleph_reco_config.h); `PVN_D0_MAX`, `PVN_BS_SIGMA_X/Y/Z` and `PVN_CHI2_MAX` are defined from them, so the two chains differ only in the z window. The φ→K⁺K⁻ and D* finders run only when this primary vertex has at least 2 tracks: with fewer it is the default vertex at the origin, and their collections are empty; the legacy secondary-vertex and V0 blocks and the V0 module run on every event. |
+| `--oldPV` | legacy PV chain, unchanged from before this module: `get_PrimaryTracks` + `VertexFitter_Tk`, with the origin-referenced `|D0| < 0.75 cm`, `|Z0| < 2 cm` pre-selection instead of the beamspot-referenced one. No `pv_*` flag branches. The legacy vertex, its primary/secondary track split and the legacy `sv_*`/`v0_*` blocks are computed as before this module; the covariance and χ² branches above are added. Note that the beamspot constraint of the `get_PrimaryTracks` selection fit is passed in 10 µm units while its track parameters are read in cm, so that constraint is off by a factor 1000 and is effectively absent; the final `VertexFitter_Tk` fit is unaffected. Its pre-selection window, beamspot widths and track-compatibility cut are the named constants of [`aleph_reco_config.h`](aleph_reco_config.h); `PVN_D0_MAX`, `PVN_BS_SIGMA_X/Y/Z` and `PVN_CHI2_MAX` are defined from them, so the two chains differ only in the z window. The secondary-vertex module and the φ→K⁺K⁻ and D* finders run only when this primary vertex has at least 2 tracks: with fewer it is the default vertex at the origin, and their collections are empty; the legacy secondary-vertex and V0 blocks and the V0 module run on every event. |
 
 ### Legacy secondary vertices and V0s (`sv_*`, `v0_*`)
 
@@ -209,7 +209,7 @@ A second secondary-vertex finder, [`analyzer_svnew.h`](analyzer_svnew.h), runs b
 - seeds: ΔR between the two tracks at most 0.8 (`SVN_SEED_DR_MAX`), with ΔR = √(Δη² + Δφ²) of the directions (cos φ, sin φ, tan λ) as in the standard finder's seed pre-filter; growth may attach tracks at any ΔR;
 - 2-track candidates: flight significance > 3 (`SVN_2TRK_FSIG_MIN`), the 3D distance from the primary vertex divided by its uncertainty along the flight direction, from the vertex and primary-vertex position covariances summed; it applies to the finished candidate, whose tracks stay claimed when it is dropped.
 
-Masses use the charged-pion mass for every track. Like the other finders, the module returns no candidate for an event without a good primary vertex (`pv_good == 0`).
+Masses use the charged-pion mass for every track. Like the other finders, the module returns no candidate for an event without a good primary vertex (`pv_good == 0`); under `--oldPV`, like the φ→K⁺K⁻ and D* finders, it returns none when the primary vertex has fewer than 2 tracks.
 
 **Output branches.** Per candidate, in event order (not assigned to jets); `n_svn_event` is the number of candidates:
 
@@ -217,7 +217,7 @@ Masses use the charged-pion mass for every track. Like the other finders, the mo
 | --- | --- | --- | --- |
 | `svn_mass` | invariant mass of the constituent tracks at the vertex, pion hypothesis | GeV | — |
 | `svn_chi2` | vertex-fit χ²/ndf | — | — |
-| `svn_dxyz` | 3D distance from the primary vertex | cm | −1 (primary vertex with fewer than 2 tracks) |
+| `svn_dxyz` | 3D distance from the primary vertex | cm | — |
 | `svn_dx/dy/dz` | vertex position minus primary-vertex position | cm | — |
 | `svn_p` | magnitude of the summed momentum at the vertex | GeV | — |
 | `svn_cosPointing` | cosine between the flight direction from the primary vertex and the summed momentum | — | — |

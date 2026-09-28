@@ -727,6 +727,9 @@ class Analysis():
             if self.do_pvnew:
                 seed_expr = self._pv_guard(seed_expr, f"{SVNEW}::SVSeeds{{}}")
                 svn_expr = self._pv_guard(svn_expr, "FCCAnalyses::VertexingUtils::FCCAnalysesV0{}")
+            else:
+                seed_expr = self._oldpv_guard(seed_expr, f"{SVNEW}::SVSeeds{{}}")
+                svn_expr = self._oldpv_guard(svn_expr, "FCCAnalyses::VertexingUtils::FCCAnalysesV0{}")
             df = df.Define("SVSeeds_event", seed_expr)
             df = df.Define("SVs_svn", svn_expr)
             df = df.Define("n_svn_event", "int(SVs_svn.vtx.size())")
