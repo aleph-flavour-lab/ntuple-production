@@ -422,8 +422,8 @@ inline RVec<float> candMassSig(const VertexingUtils::FCCAnalysesV0& v0s) {
 // Pointing significance: chi2-like significance of the displacement component
 // PERPENDICULAR to the candidate momentum (all in cm). d = candidate vertex -
 // reference vertex, p = candidate momentum, cV/cR = packed lower-triangular
-// position covariances (xx,yx,yy,zx,zy,zz); the reference vertex is the PV.
-// Returns -1 for degenerate or singular geometry.
+// position covariances (xx,yx,yy,zx,zy,zz); reference = PV for candPointSig, an
+// SV for candSVPointing. Returns -1 for degenerate or singular geometry.
 template <typename CovV, typename CovR>
 inline float pointSigTransverse(const TVector3& d, const TVector3& p,
                                 const CovV& cV, const CovR& cR) {
@@ -503,6 +503,66 @@ inline RVec<int> candDaughterOrigIdx(const VertexingUtils::FCCAnalysesV0& v0s,
       if (s >= 0 && s < (int)sec2orig.size()) idx = sec2orig[s];
     }
     out.push_back(idx);
+  }
+  return out;
+}
+
+// Pointing of each V0 candidate at the SV of largest cosPoint, SVs sharing a daughter
+// skipped; -2/-1/-1 if none (pointSig is also -1 on a singular covariance).
+struct V0SVPointing {
+  RVec<float> cosPoint;  // cos(candidate momentum, SV->candidate vector)
+  RVec<float> pointSig;  // transverse pointing significance wrt that SV
+  RVec<int>   svIdx;     // index of that SV in the SV collection
+};
+
+inline V0SVPointing candSVPointing(const VertexingUtils::FCCAnalysesV0& v0s,
+                                   const VertexingUtils::FCCAnalysesV0& svs,
+                                   const RVec<int>& sec2orig) {
+  V0SVPointing out;
+  const int nSec = (int)sec2orig.size();
+  auto toOrig = [&](int s) { return (s >= 0 && s < nSec) ? sec2orig[s] : -1; };
+
+  std::vector<std::vector<int>> sv_orig(svs.vtx.size());
+  for (size_t s = 0; s < svs.vtx.size(); ++s)
+    for (int t : svs.vtx[s].reco_ind) {
+      int o = toOrig(t);
+      if (o >= 0) sv_orig[s].push_back(o);
+    }
+
+  for (const auto& v : v0s.vtx) {
+    int o1 = (v.reco_ind.size() > 0) ? toOrig(v.reco_ind[0]) : -1;
+    int o2 = (v.reco_ind.size() > 1) ? toOrig(v.reco_ind[1]) : -1;
+    TVector3 x(v.vertex.position[0], v.vertex.position[1], v.vertex.position[2]);
+    TVector3 p = candMomentum(v);
+
+    int best = -1;
+    double best_cos = -2.;
+    if (p.Mag() > 0.) {
+      for (size_t s = 0; s < svs.vtx.size(); ++s) {
+        bool shared = false;
+        for (int o : sv_orig[s])
+          if (o == o1 || o == o2) { shared = true; break; }
+        if (shared) continue;
+        const auto& sv = svs.vtx[s].vertex;
+        TVector3 d = x - TVector3(sv.position[0], sv.position[1], sv.position[2]);
+        double dm = d.Mag();
+        if (dm <= 0.) continue;
+        double cp = d.Dot(p) / (dm * p.Mag());
+        if (best < 0 || cp > best_cos) { best_cos = cp; best = (int)s; }
+      }
+    }
+    if (best < 0) {
+      out.cosPoint.push_back(-2.);
+      out.pointSig.push_back(-1.);
+      out.svIdx.push_back(-1);
+      continue;
+    }
+    const auto& sv = svs.vtx[best].vertex;
+    TVector3 d = x - TVector3(sv.position[0], sv.position[1], sv.position[2]);
+    out.cosPoint.push_back(best_cos);
+    out.pointSig.push_back(pointSigTransverse(d, p, v.vertex.covMatrix,
+                                              sv.covMatrix));
+    out.svIdx.push_back(best);
   }
   return out;
 }

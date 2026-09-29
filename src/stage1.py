@@ -86,6 +86,34 @@ V0N_LEG_TAG_DEFINES = (
     ("nTPC", "FCCAnalyses::AlephTrkAux::subdetHits({pfx}_origIdx, Tracks.subdetectorHitNumbers_begin, Tracks.subdetectorHitNumbers_end, _Tracks_subdetectorHitNumbers, 2)"),
 )
 
+# SV-module branches (branch suffix, Define expression); per candidate, in event order:
+SVN_CAND_DEFINES = (
+    ("mass",        "SVs_svn.invM"),
+    ("chi2",        "FCCAnalyses::AlephTruth::candChi2(SVs_svn)"),
+    ("dxyz",        "FCCAnalyses::AlephTruth::candDxyz(SVs_svn, VertexObject_looseBS)"),
+    ("dx",          "FCCAnalyses::AlephSVNew::candDcomp(SVs_svn, VertexObject_looseBS, 0)"),
+    ("dy",          "FCCAnalyses::AlephSVNew::candDcomp(SVs_svn, VertexObject_looseBS, 1)"),
+    ("dz",          "FCCAnalyses::AlephSVNew::candDcomp(SVs_svn, VertexObject_looseBS, 2)"),
+    ("p",           "FCCAnalyses::AlephTruth::candP(SVs_svn)"),
+    ("cosPointing", "FCCAnalyses::AlephTruth::candCosPointing(SVs_svn, VertexObject_looseBS)"),
+    ("pointSig",    "FCCAnalyses::AlephV0New::candPointSig(SVs_svn, VertexObject_looseBS)"),
+    ("ntracks",     "FCCAnalyses::AlephSVNew::candNtracks(SVs_svn)"),
+    ("sigL",        "FCCAnalyses::AlephSVNew::candSigL(SVs_svn)"),
+    ("cov_xx",      "FCCAnalyses::AlephV0New::candCovComp(SVs_svn, 0)"),
+    ("cov_yx",      "FCCAnalyses::AlephV0New::candCovComp(SVs_svn, 1)"),
+    ("cov_yy",      "FCCAnalyses::AlephV0New::candCovComp(SVs_svn, 2)"),
+    ("cov_zx",      "FCCAnalyses::AlephV0New::candCovComp(SVs_svn, 3)"),
+    ("cov_zy",      "FCCAnalyses::AlephV0New::candCovComp(SVs_svn, 4)"),
+    ("cov_zz",      "FCCAnalyses::AlephV0New::candCovComp(SVs_svn, 5)"),
+    # per constituent track, flat over the candidates:
+    ("trk_sv",      "FCCAnalyses::AlephSVNew::candTrkSV(SVs_svn)"),
+    ("trk_idx",     "FCCAnalyses::AlephSVNew::candTrkIdx(SVs_svn)"),
+    ("trk_origIdx", "FCCAnalyses::AlephSVNew::candTrkOrigIdx(SVs_svn, sec2origIdx)"),
+)
+# V0 pointing at the svn vertex nearest in angle, per V0 candidate (v0n_pdg order):
+V0N_SVN_DEFINES = (("svnCosPoint", "cosPoint"), ("svnPointSig", "pointSig"),
+                   ("svnIdx", "svIdx"))
+
 # phi->KK branch names: single source for the Define chain and the output list
 PHIKK_CAND_BRANCHES = ("invM", "p", "px", "py", "pz", "alpha", "qt", "bandEll",
                        "chi2", "vx", "vy", "vz", "dpv", "dpvSig", "same_sign",
@@ -149,6 +177,8 @@ class Analysis():
                             help='data only: keep every run instead of the data/lumi run list (--excludeRuns still applies).')
         parser.add_argument('--oldV0', action='store_true',
                             help='Legacy V0 only: drop the two-tier V0 module (no v0n_* branches).')
+        parser.add_argument('--oldSV', action='store_true',
+                            help='Drop the secondary-vertex module (no svn_* branches). The legacy sv_* block is unaffected.')
         parser.add_argument('--noV0TagVars', action='store_true',
                             help='Drop the jet-relative V0 tagger inputs (v0n_jetIdx/z/zL/ptRel/... and the per-leg q/p/nTPC). Implied by --oldV0.')
         parser.add_argument('--noPhiKK', action='store_true',
@@ -174,6 +204,7 @@ class Analysis():
 
         self.do_v0new = not self.ana_args.oldV0
         self.do_v0tagvars = self.do_v0new and not self.ana_args.noV0TagVars
+        self.do_svnew = not self.ana_args.oldSV
         self.do_phikk = not self.ana_args.noPhiKK
         self.do_dstar = not self.ana_args.noDstar
 
@@ -290,8 +321,11 @@ class Analysis():
         # V0 daughter branches join through (sec2origIdx index map, candidate
         # getters, vertex-fit glue) carry no truth and run on data too.
         self.include_paths = ["aleph_units.h", "aleph_reco_config.h", "analyzer.h", "analyzer_pvnew.h", "analyzer_truth.h", "analyzer_trkaux.h"]
-        if self.do_v0new:
+        # the SV module reuses the V0 module's candidate getters
+        if self.do_v0new or self.do_svnew:
             self.include_paths.append("analyzer_v0new.h")
+        if self.do_svnew:
+            self.include_paths.append("analyzer_svnew.h")
         if self.do_phikk:
             self.include_paths.append("analyzer_phikk.h")
         if self.do_dstar:
@@ -383,6 +417,18 @@ class Analysis():
         df = df.Define("jet_p4", "JetConstituentsUtils::compute_tlv_jets(jets)" )
         df = df.Define("event_invariant_mass", "JetConstituentsUtils::InvariantMass(jet_p4[0], jet_p4[1])")
 
+        ### Thrust variables
+        # exact thrust {T, x, y, z}, repacked into the {T, x, ex, y, ey, z, ez} layout of getAxisCosTheta/getThrustPointing
+        df = df.Define("EVT_thrustExact",   "Algorithms::calculate_thrust()(RP_px, RP_py, RP_pz)")
+        df = df.Define("EVT_thrustNP",      "EVT_thrustExact[0] < 0 ? ROOT::VecOps::RVec<float>{-1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f} : "
+                                            "ROOT::VecOps::RVec<float>{EVT_thrustExact[0], EVT_thrustExact[1], 0.f, EVT_thrustExact[2], 0.f, EVT_thrustExact[3], 0.f}")
+        df = df.Define("RP_thrustangleNP",  'Algorithms::getAxisCosTheta(EVT_thrustNP, RP_px, RP_py, RP_pz)')
+        df = df.Define("EVT_thrust",        'Algorithms::getThrustPointing(1.)(RP_thrustangleNP, RP_e, EVT_thrustNP)')
+        df = df.Define("EVT_Thrust_Mag",    "EVT_thrust.at(0)")
+        df = df.Define("EVT_Thrust_X",      "EVT_thrust.at(1)")
+        df = df.Define("EVT_Thrust_Y",      "EVT_thrust.at(3)")
+        df = df.Define("EVT_Thrust_Z",      "EVT_thrust.at(5)")
+        df = df.Define("EVT_Thrust_cosTheta", "EVT_Thrust_Mag < 0 ? -2.f : EVT_Thrust_Z / sqrt(EVT_Thrust_X*EVT_Thrust_X + EVT_Thrust_Y*EVT_Thrust_Y + EVT_Thrust_Z*EVT_Thrust_Z)")
 
         # per-run beamspot centre, 10 um units; override the json with $ALEPH_BEAMSPOT_JSON
         if self.ana_args.doData:
@@ -592,6 +638,11 @@ class Analysis():
         df = df.Define("sv_dx", "FCCAnalyses::AlephSelection::get_dx_SV_jets(sv_jets, PrimaryVertexP3)")
         df = df.Define("sv_dy", "FCCAnalyses::AlephSelection::get_dy_SV_jets(sv_jets, PrimaryVertexP3)")
         df = df.Define("sv_dz", "FCCAnalyses::AlephSelection::get_dz_SV_jets(sv_jets, PrimaryVertexP3)")
+        # vertex-fit covariance [cm^2]
+        for ic, cc in enumerate(("xx", "yx", "yy", "zx", "zy", "zz")):
+            df = df.Define(f"sv_cov_{cc}", f"FCCAnalyses::AlephSelection::svCovComp(sv_jets, {ic})")
+        df = df.Define("sv_trk_sv",      "FCCAnalyses::AlephSelection::svTrkSV(sv_jets)")
+        df = df.Define("sv_trk_origIdx", "FCCAnalyses::AlephSelection::svTrkOrigIdx(sv_jets, selBaselineOrigIdx)")
 
         ############################################# V0 Reconstruction #######################################################
         v0_expr = ("FCCAnalyses::AlephSelection::get_V0s_ALEPH("
@@ -661,6 +712,33 @@ class Analysis():
                 for _b, _e in V0N_TAG_DEFINES:
                     df = df.Define(f"v0n_{_b}", _e)
                 df = self._define_legs(df, _legs, V0N_LEG_TAG_DEFINES)
+
+        ############################################# Secondary-vertex module #################################################
+        if self.do_svnew:
+            SVNEW = "FCCAnalyses::AlephSVNew"
+            # tight Ks/Lambda daughters are masked; under --oldV0 nothing is
+            if self.do_v0new:
+                v0_mask = f"V0sNew_event, v0n_tight, {SVNEW}::SVN_MASK_MODE"
+            else:
+                v0_mask = f"FCCAnalyses::VertexingUtils::FCCAnalysesV0{{}}, ROOT::VecOps::RVec<int>{{}}, {SVNEW}::SVN_MASK_NONE"
+            seed_expr = f"{SVNEW}::svSeedPass(SecondaryTracks_looseBS, VertexObject_looseBS, {BZ})"
+            svn_expr = (f"{SVNEW}::findSVs(SecondaryTracks_looseBS, VertexObject_looseBS, {v0_mask}, {BZ}, SVSeeds_event, "
+                        "TVector3(EVT_Thrust_X, EVT_Thrust_Y, EVT_Thrust_Z))")
+            if self.do_pvnew:
+                seed_expr = self._pv_guard(seed_expr, f"{SVNEW}::SVSeeds{{}}")
+                svn_expr = self._pv_guard(svn_expr, "FCCAnalyses::VertexingUtils::FCCAnalysesV0{}")
+            else:
+                seed_expr = self._oldpv_guard(seed_expr, f"{SVNEW}::SVSeeds{{}}")
+                svn_expr = self._oldpv_guard(svn_expr, "FCCAnalyses::VertexingUtils::FCCAnalysesV0{}")
+            df = df.Define("SVSeeds_event", seed_expr)
+            df = df.Define("SVs_svn", svn_expr)
+            df = df.Define("n_svn_event", "int(SVs_svn.vtx.size())")
+            for _b, _e in SVN_CAND_DEFINES:
+                df = df.Define(f"svn_{_b}", _e)
+            if self.do_v0new:
+                df = df.Define("v0n_svnpoint", "FCCAnalyses::AlephV0New::candSVPointing(V0sNew_event, SVs_svn, sec2origIdx)")
+                for _b, _m in V0N_SVN_DEFINES:
+                    df = df.Define(f"v0n_{_b}", f"v0n_svnpoint.{_m}")
 
         ############################################# exclusive-finder track auxiliaries ######################################
         if self.do_phikk or self.do_dstar:
@@ -739,10 +817,11 @@ class Analysis():
         _ds = ("d0_trkK_origIdx, d0_trkPi_origIdx, dstar_trkK_origIdx, "
                "dstar_trkPi_origIdx, dstar_trkPis_origIdx, dstar_tight"
                if self.do_dstar else ", ".join([_EMPTY] * 6))
+        _svn = "svn_trk_origIdx" if self.do_svnew else _EMPTY
         df = df.Define("trkTags",
                        "FCCAnalyses::AlephTrkAux::trackTags(Tracks.size(), "
                        "selBaselineOrigIdx, prim2origIdx, svTrkIdx, selBaselineOrigIdx, "
-                       f"{_v0}, {_phi}, {_ds})")
+                       f"{_svn}, {_v0}, {_phi}, {_ds})")
         df = df.Define("trk_member", "trkTags.member")
         df = df.Define("trk_nCand",  "trkTags.nCand")
 
@@ -933,18 +1012,6 @@ class Analysis():
 
 
 
-        ### Thrust variables
-        # exact thrust {T, x, y, z}, repacked into the {T, x, ex, y, ey, z, ez} layout of getAxisCosTheta/getThrustPointing
-        df = df.Define("EVT_thrustExact",   "Algorithms::calculate_thrust()(RP_px, RP_py, RP_pz)")
-        df = df.Define("EVT_thrustNP",      "EVT_thrustExact[0] < 0 ? ROOT::VecOps::RVec<float>{-1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f} : "
-                                            "ROOT::VecOps::RVec<float>{EVT_thrustExact[0], EVT_thrustExact[1], 0.f, EVT_thrustExact[2], 0.f, EVT_thrustExact[3], 0.f}")
-        df = df.Define("RP_thrustangleNP",  'Algorithms::getAxisCosTheta(EVT_thrustNP, RP_px, RP_py, RP_pz)')
-        df = df.Define("EVT_thrust",        'Algorithms::getThrustPointing(1.)(RP_thrustangleNP, RP_e, EVT_thrustNP)')
-        df = df.Define("EVT_Thrust_Mag",    "EVT_thrust.at(0)")
-        df = df.Define("EVT_Thrust_X",      "EVT_thrust.at(1)")
-        df = df.Define("EVT_Thrust_Y",      "EVT_thrust.at(3)")
-        df = df.Define("EVT_Thrust_Z",      "EVT_thrust.at(5)")
-        df = df.Define("EVT_Thrust_cosTheta", "EVT_Thrust_Mag < 0 ? -2.f : EVT_Thrust_Z / sqrt(EVT_Thrust_X*EVT_Thrust_X + EVT_Thrust_Y*EVT_Thrust_Y + EVT_Thrust_Z*EVT_Thrust_Z)")
         df = df.Define("EVT_Evis",          "Sum(RP_e)")  # total visible energy: sum over all particle-flow candidates [GeV]
         
 
@@ -969,6 +1036,12 @@ class Analysis():
                     f"v0n_{t}_{b}" for t in V0N_TRKS
                     for b, _ in V0N_LEG_TAG_DEFINES
                 ]
+        if self.do_svnew:
+            module_branches += ["n_svn_event"] + [
+                f"svn_{b}" for b, _ in SVN_CAND_DEFINES
+            ]
+            if self.do_v0new:
+                module_branches += [f"v0n_{b}" for b, _ in V0N_SVN_DEFINES]
         if self.do_phikk:
             module_branches += ["n_phikk_event"] + [
                 f"phikk_{b}" for b in PHIKK_CAND_BRANCHES
@@ -1064,6 +1137,14 @@ class Analysis():
             "sv_dx",
             "sv_dy",
             "sv_dz",
+            "sv_cov_xx",
+            "sv_cov_yx",
+            "sv_cov_yy",
+            "sv_cov_zx",
+            "sv_cov_zy",
+            "sv_cov_zz",
+            "sv_trk_sv",
+            "sv_trk_origIdx",
 
             # V0 candidates:
             "n_v0_event",

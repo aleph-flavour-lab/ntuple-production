@@ -63,13 +63,14 @@ The −9 sentinel of `pfcand_d0`/`pfcand_z0` lies inside the physical range of t
 
 ### Reconstruction modules: defaults and opt-outs
 
-A flag-less `stage1.py` runs the two-tier V0 module ([`analyzer_v0new.h`](analyzer_v0new.h)), the φ→K⁺K⁻ finder ([`analyzer_phikk.h`](analyzer_phikk.h)) and the D*→D⁰π finder ([`analyzer_dstar.h`](analyzer_dstar.h)) on top of the standard chain, writing the `v0n_*`, `phikk_*` and `dstar_*` branches. None of them writes generator-level information, so the output schema is the same on MC and on data.
+A flag-less `stage1.py` runs the two-tier V0 module ([`analyzer_v0new.h`](analyzer_v0new.h)), the secondary-vertex module ([`analyzer_svnew.h`](analyzer_svnew.h)), the φ→K⁺K⁻ finder ([`analyzer_phikk.h`](analyzer_phikk.h)) and the D*→D⁰π finder ([`analyzer_dstar.h`](analyzer_dstar.h)) on top of the standard chain, writing the `v0n_*`, `svn_*`, `phikk_*` and `dstar_*` branches. None of them writes generator-level information, so the output schema is the same on MC and on data.
 
 The legacy code paths remain available as opt-outs:
 
 | flag | meaning |
 | --- | --- |
-| `--oldV0` | drop the two-tier V0 module: no `v0n_*` branches. The legacy `v0_*` block is unaffected. The φ→KK and D* finders still run, with their Kₛ/Λ track veto empty (that veto list is a V0-module product). |
+| `--oldV0` | drop the two-tier V0 module: no `v0n_*` branches. The legacy `v0_*` block is unaffected. The secondary-vertex module and the φ→KK and D* finders still run, with their Kₛ/Λ track veto empty (that veto list is a V0-module product). |
+| `--oldSV` | drop the secondary-vertex module: no `svn_*` branches and no `n_svn_event`. The legacy `sv_*` block is unaffected. The `svn` bit of `trk_member` then stays 0. |
 | `--noV0TagVars` | drop the jet-relative tagger inputs of the module (the `v0n_jetIdx`/`z`/`zL`/... block and the per-daughter `q`/`p`/`nTPC` branches). The rest of the module is unaffected; `--oldV0` drops them too. |
 | `--noPhiKK` | skip the φ→K⁺K⁻ finder: no `phikk_*` branches and no `n_phikk_event`. The φ bits of `trk_member` then stay 0. |
 | `--noDstar` | skip the D*→D⁰π finder: no `dstar_*` branches and no `n_dstar_event`/`n_d0fits_event`. The D⁰/D* bits of `trk_member` then stay 0. |
@@ -174,7 +175,7 @@ The run beamspot position is written twice: `Beamspot_x`, `Beamspot_y`, `Beamspo
 
 | flag | meaning |
 | --- | --- |
-| `--oldPV` | legacy PV chain, unchanged from before this module: `get_PrimaryTracks` + `VertexFitter_Tk`, with the origin-referenced `|D0| < 0.75 cm`, `|Z0| < 2 cm` pre-selection instead of the beamspot-referenced one. No `pv_*` flag branches. The legacy vertex, its primary/secondary track split and the legacy `sv_*`/`v0_*` blocks are computed as before this module; the covariance and χ² branches above are added. Note that the beamspot constraint of the `get_PrimaryTracks` selection fit is passed in 10 µm units while its track parameters are read in cm, so that constraint is off by a factor 1000 and is effectively absent; the final `VertexFitter_Tk` fit is unaffected. Its pre-selection window, beamspot widths and track-compatibility cut are the named constants of [`aleph_reco_config.h`](aleph_reco_config.h); `PVN_D0_MAX`, `PVN_BS_SIGMA_X/Y/Z` and `PVN_CHI2_MAX` are defined from them, so the two chains differ only in the z window. The φ→K⁺K⁻ and D* finders run only when this primary vertex has at least 2 tracks: with fewer it is the default vertex at the origin, and their collections are empty; the legacy secondary-vertex and V0 blocks and the V0 module run on every event. |
+| `--oldPV` | legacy PV chain, unchanged from before this module: `get_PrimaryTracks` + `VertexFitter_Tk`, with the origin-referenced `|D0| < 0.75 cm`, `|Z0| < 2 cm` pre-selection instead of the beamspot-referenced one. No `pv_*` flag branches. The legacy vertex, its primary/secondary track split and the legacy `sv_*`/`v0_*` blocks are computed as before this module; the covariance and χ² branches above are added. Note that the beamspot constraint of the `get_PrimaryTracks` selection fit is passed in 10 µm units while its track parameters are read in cm, so that constraint is off by a factor 1000 and is effectively absent; the final `VertexFitter_Tk` fit is unaffected. Its pre-selection window, beamspot widths and track-compatibility cut are the named constants of [`aleph_reco_config.h`](aleph_reco_config.h); `PVN_D0_MAX`, `PVN_BS_SIGMA_X/Y/Z` and `PVN_CHI2_MAX` are defined from them, so the two chains differ only in the z window. The secondary-vertex module and the φ→K⁺K⁻ and D* finders run only when this primary vertex has at least 2 tracks: with fewer it is the default vertex at the origin, and their collections are empty; the legacy secondary-vertex and V0 blocks and the V0 module run on every event. |
 
 ### Legacy secondary vertices and V0s (`sv_*`, `v0_*`)
 
@@ -187,6 +188,53 @@ The standard chain also writes the legacy secondary-vertex block `sv_*` (`get_SV
 - **`v0_*` is neither exclusive nor single-hypothesis.** It books with the loose windows `AlephLegacyV0::kLoose*`, 0.1–1.4 GeV for both Kₛ and Λ (conversions are never booked), so every booked pair is a Kₛ (`v0_pdg` 310), most pairs are booked again as Λ with the same vertex, often twice (once per proton–pion mass assignment), and a track can be shared by several entries: `n_v0_ks` counts every accepted pair, and `n_v0_lambda` counts these duplicates, so it can exceed `n_v0_ks` (up to twice).
 - **`sv_thetarel`, `sv_phirel`, `v0_thetarel`, `v0_phirel`** compare the jet direction with the absolute vertex position (seen from the coordinate origin), not with the flight direction from the primary vertex. They are distorted by the primary-vertex position and, in data only, by the beamspot offset; take the flight direction from `sv_dx/dy/dz` instead.
 - **Job logs.** The fork's vertex fit, used by every finder here, silences the standard output around each fit by redirecting it, which is not thread-safe: a multi-threaded job can lose the rest of its log, including the final fccanalysis summary. The output file is not affected; its `eventsProcessed` and `eventsSelected` parameters hold the event counts.
+
+### Secondary vertices
+
+The secondary vertices of the standard chain (`get_SV_event_ALEPH`, assigned to the jets: the `sv_*` block) carry their vertex-fit position covariance `sv_cov_xx`, `_yx`, `_yy`, `_zx`, `_zy`, `_zz` (packed lower triangle, cm²), nested per jet like the other `sv_*` branches and in the component order of `Vertex_refit_cov_*`. Their constituent tracks are listed per jet, the tracks of the jet's vertices in vertex order: `sv_trk_sv` is the index of the track's vertex within the jet (the inner index of the other `sv_*` branches) and `sv_trk_origIdx` the index of the track in the `Tracks` collection, the frame of `svn_trk_origIdx` and `pfcand_trackIdx` (−1 if unmapped).
+
+### The secondary-vertex module
+
+A second secondary-vertex finder, [`analyzer_svnew.h`](analyzer_svnew.h), runs by default next to the standard one and writes the `svn_*` block; `--oldSV` drops it and leaves the `sv_*` block unaffected. It takes the same inputs as the standard finder, the primary vertex `VertexObject_looseBS` and the secondary tracks `SecondaryTracks_looseBS` (the baseline-selected tracks outside the primary-vertex fit), and adds no track requirement of its own: the baseline track selection defines its pool.
+
+**V0 first.** It runs after the two-tier V0 module and removes the daughters of the tight Kₛ/Λ candidates (`v0n_tight == 1`) from the pool, so that a V0 is not booked a second time as a secondary vertex. Under `--oldV0` there are no such candidates and the finder runs on the whole pool.
+
+**Seeds and growth.** Every pair of pool tracks is fitted to a common vertex (`VertexFitter_Tk`) once per event. A pair is *compatible* when its fit passes the vertex-quality requirements below, and it is a *seed* when it passes the seed and candidate requirements as well. Seeds are taken in order of increasing χ²/ndf. A seed whose two tracks are both still free grows one track at a time: of the free tracks compatible with at least one track already in the candidate, the one giving the lowest χ²/ndf of the refitted vertex is attached, as long as the refitted candidate still passes every requirement, up to 8 tracks. Growth stays in the seed's thrust hemisphere and follows the candidate's direction. A track is attached only if its direction at the perigee, (cos φ, sin φ, tan λ), lies on the same side of the plane perpendicular to the event thrust axis (`EVT_Thrust_*`) as the summed momentum of the seed pair at its vertex, and has a positive scalar product with the summed momentum of the current candidate at its vertex, which is re-evaluated after every attached track. The seed pair itself may straddle the plane. The tracks of a finished candidate are then claimed, so a track belongs to at most one `svn` vertex.
+
+**Requirements.** Every value is a named constant of the header (`SVN_*`), not configurable from the command line:
+
+- every fit: χ²/ndf < 10 (`SVN_CHI2`), and each track's χ² contribution < 5 (`SVN_TRK_CHI2`);
+- every candidate: distance from the primary vertex between 0.03 and 3 cm (`SVN_DIS_LO`, `SVN_DIS_HI`); cosine between the flight direction and the summed momentum at the vertex > 0.7 (`SVN_COS_POINT`); position uncertainty along the summed momentum < 0.10 cm (`SVN_SIGL_MAX`), which rejects vertices of nearly collinear tracks, unconstrained along the bundle;
+- at most 8 tracks per candidate (`SVN_MAX_TRK`);
+- seeds: ΔR between the two tracks at most 0.8 (`SVN_SEED_DR_MAX`), with ΔR = √(Δη² + Δφ²) of the directions (cos φ, sin φ, tan λ) as in the standard finder's seed pre-filter; growth may attach tracks at any ΔR;
+- 2-track candidates: flight significance > 3 (`SVN_2TRK_FSIG_MIN`), the 3D distance from the primary vertex divided by its uncertainty along the flight direction, from the vertex and primary-vertex position covariances summed; it applies to the finished candidate, whose tracks stay claimed when it is dropped.
+
+Masses use the charged-pion mass for every track. Like the other finders, the module returns no candidate for an event without a good primary vertex (`pv_good == 0`); under `--oldPV`, like the φ→K⁺K⁻ and D* finders, it returns none when the primary vertex has fewer than 2 tracks.
+
+**Output branches.** Per candidate, in event order (not assigned to jets); `n_svn_event` is the number of candidates:
+
+| branch | definition | unit | undefined |
+| --- | --- | --- | --- |
+| `svn_mass` | invariant mass of the constituent tracks at the vertex, pion hypothesis | GeV | — |
+| `svn_chi2` | vertex-fit χ²/ndf | — | — |
+| `svn_dxyz` | 3D distance from the primary vertex | cm | — |
+| `svn_dx/dy/dz` | vertex position minus primary-vertex position | cm | — |
+| `svn_p` | magnitude of the summed momentum at the vertex | GeV | — |
+| `svn_cosPointing` | cosine between the flight direction from the primary vertex and the summed momentum | — | — |
+| `svn_pointSig` | transverse pointing significance with respect to the primary vertex, defined as `v0n_pointSig` | — | −1 (singular covariance) |
+| `svn_ntracks` | number of constituent tracks | — | — |
+| `svn_sigL` | vertex position uncertainty along the summed momentum | cm | — |
+| `svn_cov_{xx,yx,yy,zx,zy,zz}` | vertex-fit position covariance, packed lower triangle | cm² | — |
+
+Per constituent track, flat over the candidates in the same order:
+
+| branch | definition | undefined |
+| --- | --- | --- |
+| `svn_trk_sv` | index of the candidate the track belongs to | — |
+| `svn_trk_origIdx` | index of the track in the `Tracks` collection, the frame of `v0n_trk{1,2}_origIdx` and `pfcand_trackIdx` | −1 |
+| `svn_trk_idx` | index of the track in the secondary-track collection the finder ran on | — |
+
+**V0 pointing at the secondary vertices.** With both modules on, every V0 candidate also carries its pointing at the nearest `svn` vertex, the one with the largest cosine between the candidate momentum and the vertex→candidate line; vertices sharing a track with the candidate are skipped. Per candidate, in the order of `v0n_pdg`: `v0n_svnCosPoint` (that cosine; −2 when there is no such vertex), `v0n_svnPointSig` (the transverse pointing significance with respect to that vertex, defined as `v0n_pointSig` with the vertex in place of the primary vertex; −1 when there is no such vertex or the covariance is singular) and `v0n_svnIdx` (its index in the `svn_*` arrays; −1 when there is none, the reliable "no vertex" test). They are dropped with either module.
 
 ### The φ→K⁺K⁻ finder
 
@@ -287,7 +335,7 @@ Per leg, for the φ legs `phikk_trk{1,2}_*` (`trk1` the higher-momentum one) and
 
 `pfcand_trackIdx` gives the **original `Tracks`** index of each jet constituent's own track (−1 for a constituent with no track). That is the index space every finder's `*_origIdx` branch already uses, so the `pfcand_*` block and any candidate leg can be matched directly instead of through the `ReconstructedParticle`→`Track` relation.
 
-`trk_member` and `trk_nCand` are per-track arrays over the whole `Tracks` collection. `trk_member` is a bitmask recording every set a track belongs to: bit 0 fitted primary-vertex set, bit 1 daughter of any stored `v0n` candidate, bit 2 daughter of a *tight* `v0n` candidate (the legacy `v0_*` block sets no bit), bit 3 leg of any stored φ→KK candidate, bit 4 leg of a φ candidate passing `phikk_wp`, bit 5 leg of a reconstructed D⁰→Kπ candidate, bit 6 leg of any stored D* candidate (slow pion included), bit 7 leg of a D* passing `dstar_tight`, bit 8 constituent track of a secondary vertex found by `get_SV_event_ALEPH`, bit 9 baseline-selected track. `trk_nCand` counts how many written `v0n`, φ and D* candidates use the track: loose and tight `v0n` candidates, every φ candidate (same-sign and outside `phikk_wp` included) and every D* entry (both mass assignments, wrong-sign, every slow pion); the internal D⁰ candidates are not counted. 1/`trk_nCand` is therefore the de-duplication weight of the union of all written candidates only. For a selected sample it under-weights the shared tracks (for the φ signal sample `phikk_wp && !phikk_same_sign` it is on average about half of the in-sample weight, and lower still at low momentum), so recount the multiplicity within that sample from its `*_origIdx` branches. The φ and D* finders claim no tracks exclusively, so one track can serve many φ and D* candidates (V0 candidates claim their daughters exclusively, see above). Both are built in a single pass over the finished candidate lists, so they add no reconstruction work.
+`trk_member` and `trk_nCand` are per-track arrays over the whole `Tracks` collection. `trk_member` is a bitmask recording every set a track belongs to: bit 0 fitted primary-vertex set, bit 1 daughter of any stored `v0n` candidate, bit 2 daughter of a *tight* `v0n` candidate (the legacy `v0_*` block sets no bit), bit 3 leg of any stored φ→KK candidate, bit 4 leg of a φ candidate passing `phikk_wp`, bit 5 leg of a reconstructed D⁰→Kπ candidate, bit 6 leg of any stored D* candidate (slow pion included), bit 7 leg of a D* passing `dstar_tight`, bit 8 constituent track of a secondary vertex found by `get_SV_event_ALEPH`, bit 9 baseline-selected track, bit 10 constituent track of a secondary vertex of the secondary-vertex module (`svn`). `trk_nCand` counts how many written `v0n`, φ and D* candidates use the track: loose and tight `v0n` candidates, every φ candidate (same-sign and outside `phikk_wp` included) and every D* entry (both mass assignments, wrong-sign, every slow pion); the internal D⁰ candidates are not counted. 1/`trk_nCand` is therefore the de-duplication weight of the union of all written candidates only. For a selected sample it under-weights the shared tracks (for the φ signal sample `phikk_wp && !phikk_same_sign` it is on average about half of the in-sample weight, and lower still at low momentum), so recount the multiplicity within that sample from its `*_origIdx` branches. The φ and D* finders claim no tracks exclusively, so one track can serve many φ and D* candidates (V0 candidates claim their daughters exclusively, see above). Both are built in a single pass over the finished candidate lists, so they add no reconstruction work.
 
 ### Event-level energy
 

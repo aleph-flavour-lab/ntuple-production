@@ -257,7 +257,8 @@ enum TrkMemberBit : int {
   kTrkDstar     = 1 << 6,  // leg of any stored D* candidate, slow pion included
   kTrkDstarTight= 1 << 7,  // leg of a D* candidate passing the tight flag
   kTrkSV        = 1 << 8,  // constituent track of a secondary vertex
-  kTrkBaseline  = 1 << 9   // baseline-selected track
+  kTrkBaseline  = 1 << 9,  // baseline-selected track
+  kTrkSVN       = 1 << 10  // constituent track of a secondary-vertex-module vertex
 };
 
 struct TrackTags {
@@ -294,13 +295,14 @@ inline RVec<int> svTrackIdx(const RVec<VertexingUtils::FCCAnalysesVertex>& svs) 
 }
 
 // Index lists are in the original Tracks frame, except sv_trk_idx, which
-// sv2orig maps there.
+// sv2orig maps there. svn_orig: tracks of the secondary-vertex module.
 // A finder that did not run passes empty lists.
 inline TrackTags trackTags(size_t nTracks,
                            const RVec<int>& baseline_orig,
                            const RVec<int>& prim_orig,
                            const RVec<int>& sv_trk_idx,
                            const RVec<int>& sv2orig,
+                           const RVec<int>& svn_orig,
                            const RVec<int>& v0_d1, const RVec<int>& v0_d2,
                            const RVec<int>& v0_tight,
                            const RVec<int>& phi_t1, const RVec<int>& phi_t2,
@@ -319,6 +321,7 @@ inline TrackTags trackTags(size_t nTracks,
       const int o = sv2orig[s];
       if (o >= 0 && o < (int)nTracks) out.member[o] |= kTrkSV;
     }
+  detail::tagBit(out.member, svn_orig, kTrkSVN);
 
   for (const RVec<int>* leg : {&v0_d1, &v0_d2}) {
     detail::tagBit(out.member, *leg, kTrkV0);
