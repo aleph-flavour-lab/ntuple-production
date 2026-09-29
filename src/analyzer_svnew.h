@@ -32,6 +32,8 @@ constexpr double SVN_CHI2 = 10.;        // maximum vertex chi2/ndf
 constexpr double SVN_DIS_LO = 0.03;     // PV displacement window, low edge [cm]
 constexpr double SVN_DIS_HI = 3.;       // PV displacement window, high edge [cm]
 constexpr double SVN_SIGL_MAX = 0.10;   // maximum vertex sigma along the summed momentum [cm]
+constexpr double SVN_SIGL_UNDEF = 999.; // sigma_L when undefined [cm], fails SVN_SIGL_MAX
+static_assert(SVN_SIGL_UNDEF > SVN_SIGL_MAX, "an undefined sigma_L must fail the cut");
 constexpr int SVN_MAX_TRK = 8;          // maximum tracks per candidate
 constexpr double SVN_TRK_CHI2 = 5.;     // per-track chi2 contribution cap
 constexpr double SVN_COS_POINT = 0.7;   // minimum cosPointing
@@ -42,13 +44,13 @@ constexpr double SVN_2TRK_FSIG_MIN = 3.; // 2-track candidates: minimum 3D fligh
 constexpr int SVN_MASK_NONE = 0;        // mask nothing
 constexpr int SVN_MASK_MODE = 1;        // mask the daughters of tight V0 candidates
 
-// Sigma along unit vector u of a packed covariance (xx, yx, yy, zx, zy, zz); 0 if var <= 0
+// Sigma along unit u of a packed covariance (xx, yx, yy, zx, zy, zz); SVN_SIGL_UNDEF unless var > 0
 template <typename Cov>
 inline double sigmaAlong(const Cov& c, const TVector3& u) {
   double x = u.x(), y = u.y(), z = u.z();
   double var = c[0] * x * x + c[2] * y * y + c[5] * z * z +
                2. * (c[1] * x * y + c[3] * x * z + c[4] * y * z);
-  return (var > 0.) ? std::sqrt(var) : 0.;
+  return (var > 0.) ? std::sqrt(var) : SVN_SIGL_UNDEF;
 }
 
 // DeltaR of (cos phi, sin phi, tanLambda), as in VertexSeed_best's pre-filter
@@ -107,7 +109,7 @@ inline bool svPassWindows(const VertexingUtils::FCCAnalysesVertex& v,
   TVector3 x(v.vertex.position[0], v.vertex.position[1], v.vertex.position[2]);
   TVector3 d = x - pv;
   double dis = d.Mag();
-  if (dis < SVN_DIS_LO || dis > SVN_DIS_HI) return false;
+  if (!(dis >= SVN_DIS_LO && dis <= SVN_DIS_HI)) return false;
   TVector3 psum(0., 0., 0.);
   double esum = 0.;
   for (const auto& tp : v.updated_track_momentum_at_vertex) {
@@ -116,7 +118,7 @@ inline bool svPassWindows(const VertexingUtils::FCCAnalysesVertex& v,
   }
   const double pmag = psum.Mag();
   if (pmag <= 0.) return false;
-  if (d.Dot(psum) / (dis * pmag) < SVN_COS_POINT) return false;
+  if (!(d.Dot(psum) / (dis * pmag) >= SVN_COS_POINT)) return false;
   if (sigmaAlong(v.vertex.covMatrix, psum.Unit()) > SVN_SIGL_MAX) return false;
   double m2 = esum * esum - psum.Mag2();
   mass_out = (m2 > 0.) ? std::sqrt(m2) : 0.;
