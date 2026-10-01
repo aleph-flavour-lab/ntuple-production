@@ -1,50 +1,126 @@
+# ------------------------------------------------------------------
+# Weaver data config for training a THREE-stream ParT on the custom ALEPH
+# stage2 output: pfcand ("pf"), V0s ("v0"), and secondary vertices ("sv").
+# Uses essentially every per-object variable stage2_aleph.py produces for each
+# of the three groups (dEdx pads+wires, all PID p-values, all track-quality/
+# impact-parameter variables, etc.) rather than a hand-picked subset.
+#
+# See example_ParticleTransformerTagger_full.py for the matching
+# three-stream network wrapper -- weaver's built-in ParticleTransformerTagger
+# only supports two streams (pf + one other), so a small custom class is
+# needed there to add the third (sv) stream. Both files must be used together
+# and must agree on the `inputs:` group order below.
+#
+# SAME FRAME-CONSTRUCTION CAVEAT AS BEFORE, now for all three streams:
+# pf_vectors / v0_vectors / sv_vectors are all rebuilt from each object's
+# own (p, thetarel, phirel) into a common jet-axis-aligned frame, since none
+# of pfcand/v0/sv give you a ready-made 4-vector in a shared frame, and
+# ParT's pairwise-interaction features need one consistent frame across
+# every object in the combined sequence. This assumes thetarel/phirel mean
+# "angle relative to the jet axis" for ALL THREE groups (pfcand_*, v0_*,
+# AND sv_*) -- verify against analyzer.h before trusting a real training
+# run. A rotation preserves invariant mass / opening angle exactly, so
+# this is a coordinate choice, not an approximation, as long as that naming
+# assumption holds for all three.
+# ------------------------------------------------------------------
+
+treename: tree
+
+selection:
+  (event_njet==2) & (jet_nconst>=5) & (np.abs(jet_eta) < 0.9) & (jet_pT > 10)
+new_variables:
+  recojet_isUD: (recojet_isD + recojet_isU)
+
+  # ---- pf stream ----
+  pf_px: pfcand_p * np.sin(pfcand_thetarel) * np.cos(pfcand_phirel)
+  pf_py: pfcand_p * np.sin(pfcand_thetarel) * np.sin(pfcand_phirel)
+  pf_pz: pfcand_p * np.cos(pfcand_thetarel)
+  pf_e: pfcand_e
+
+  # ---- v0 stream ----
+  v0_px: v0_p * np.sin(v0_thetarel) * np.cos(v0_phirel)
+  v0_py: v0_p * np.sin(v0_thetarel) * np.sin(v0_phirel)
+  v0_pz: v0_p * np.cos(v0_thetarel)
+  v0_e: np.sqrt(v0_p**2 + v0_invM**2)
+  v0_mask: ak.ones_like(v0_p)
+
+  # ---- pf stream: NaN/inf cleanup ----
+  # weaver's own "contains NaN" checker only catches literal NaN, not inf.
+  # pfcand_erel_log / pfcand_ptrel_log are precomputed as log(erel)/log(ptrel)
+  # in stage1; any particle with erel or ptrel == 0 (a very soft/negligible
+  # constituent -- not rare) produces log(0) = -inf, which sails past that
+  # check, flows into BatchNorm1d, and produces NaN a few steps downstream
+  # under bf16 autocast -- consistent with Loss=nan persisting even after
+  # the earlier dxy/dz/btag NaN fix. Clamping to a large-but-finite negative
+  # value (rather than 0) preserves "this particle is very soft" as a
+  # distinguishable signal instead of conflating it with "typical" particles.
+  pfcand_erel_log_clean: ak.where(np.isfinite(pfcand_erel_log), pfcand_erel_log, -20.0)
+  pfcand_ptrel_log_clean: ak.where(np.isfinite(pfcand_ptrel_log), pfcand_ptrel_log, -20.0)
+
+  # dxy/dz and the btag impact-parameter variables are only physically
+  # defined for CHARGED candidates with a reconstructed track; for neutral
+  # candidates (photons, neutral hadrons) the stage2 output leaves these as
+  # NaN rather than defaulting to 0 like the other track-quality variables
+  # do. Zeroing is the standard imputation here -- pfcand_isChargedHad/isGamma/
+  # isNeutralHad are already separate features, so the network can still
+  # learn "ignore these values when isGamma/isNeutralHad==1" from those
+  # flags; zero just needs to be a safe, finite placeholder rather than NaN.
+  pfcand_dxy_clean: ak.where(np.isnan(pfcand_dxy), 0.0, pfcand_dxy)
+  pfcand_dz_clean: ak.where(np.isnan(pfcand_dz), 0.0, pfcand_dz)
+  pfcand_btagSip2dVal_clean: ak.where(np.isnan(pfcand_btagSip2dVal), 0.0, pfcand_btagSip2dVal)
+  pfcand_btagSip2dSig_clean: ak.where(np.isnan(pfcand_btagSip2dSig), 0.0, pfcand_btagSip2dSig)
+  pfcand_btagSip3dVal_clean: ak.where(np.isnan(pfcand_btagSip3dVal), 0.0, pfcand_btagSip3dVal)
+  pfcand_btagSip3dSig_clean: ak.where(np.isnan(pfcand_btagSip3dSig), 0.0, pfcand_btagSip3dSig)
+  pfcand_btagJetDistVal_clean: ak.where(np.isnan(pfcand_btagJetDistVal), 0.0, pfcand_btagJetDistVal)
+  pfcand_btagJetDistSig_clean: ak.where(np.isnan(pfcand_btagJetDistSig), 0.0, pfcand_btagJetDistSig)
+
+  # ---- sv stream (secondary vertices) ----
+  sv_px: sv_p * np.sin(sv_thetarel) * np.cos(sv_phirel)
+  sv_py: sv_p * np.sin(sv_thetarel) * np.sin(sv_phirel)
+  sv_pz: sv_p * np.cos(sv_thetarel)
+  sv_e: np.sqrt(sv_p**2 + sv_mass**2)
+  sv_mask: ak.ones_like(sv_p)
+
 preprocess:
   method: auto
   data_fraction: 1
 
-# No new variables needed - all variables already exist in root files
-
-
 inputs:
-  # PFCand constituent points (angular coordinates relative to jet)
-  pf_points:
-    vars:
-      - pfcand_thetarel
-      - pfcand_phirel
-    length: 100
-    
-  # PFCand constituent features
+  # ==================== pfcand stream (ALL variables) ====================
   pf_features:
+    length: 128
     vars:
-      # Particle identification
       - pfcand_isMu
       - pfcand_isEl
       - pfcand_isChargedHad
       - pfcand_isGamma
       - pfcand_isNeutralHad
-      
-      # Basic kinematics
-      #- pfcand_e
+      - pfcand_e
       - pfcand_p
-        #- pfcand_px
-        #- pfcand_py
-        #- pfcand_pz
-      - pfcand_charge
+      - pfcand_px
+      - pfcand_py
+      - pfcand_pz
       - pfcand_theta
       - pfcand_phi
-      
-      # Relative kinematic variables
+      - pfcand_charge
       - pfcand_erel
-      - pfcand_erel_log
-      
-      # Impact parameters
-      - pfcand_dxy
-      - pfcand_dz
+      - pfcand_erel_log_clean
+      - pfcand_thetarel
+      - pfcand_phirel
+      - pfcand_pt
+      - pfcand_ptrel
+      - pfcand_ptrel_log_clean
+      - pfcand_trackChi2
+      - pfcand_trackNdof
+      - pfcand_trackChi2Norm
+      - pfcand_nTrackHits_VDET
+      - pfcand_nTrackHits_ITC
+      - pfcand_nTrackHits_TPC
+      - pfcand_dxy_clean
+      - pfcand_dz_clean
       - pfcand_phi0
       - pfcand_C
       - pfcand_ct
-      
-      # Track covariance matrix elements
       - pfcand_dptdpt
       - pfcand_dxydxy
       - pfcand_dzdz
@@ -60,72 +136,125 @@ inputs:
       - pfcand_phic
       - pfcand_dxyc
       - pfcand_cdz
-      
-      # B-tagging variables
-      - pfcand_btagSip2dVal
-      - pfcand_btagSip2dSig
-      - pfcand_btagSip3dVal
-      - pfcand_btagSip3dSig
-      - pfcand_btagJetDistVal
-      - pfcand_btagJetDistSig
-      
-      # dE/dx variables - pads
+      - pfcand_btagSip2dVal_clean
+      - pfcand_btagSip2dSig_clean
+      - pfcand_btagSip3dVal_clean
+      - pfcand_btagSip3dSig_clean
+      - pfcand_btagJetDistVal_clean
+      - pfcand_btagJetDistSig_clean
+      # ---- dEdx pads ----
       - pfcand_dEdx_pads_type
       - pfcand_dEdx_pads_value
       - pfcand_dEdx_pads_error
-      
-      # PID p-values - pads
       - pfcand_PID_pval_pads_ele
       - pfcand_PID_pval_pads_mu
       - pfcand_PID_pval_pads_pi
       - pfcand_PID_pval_pads_kaon
       - pfcand_PID_pval_pads_proton
-      
-      # dE/dx variables - wires
+      # ---- dEdx wires ----
       - pfcand_dEdx_wires_type
       - pfcand_dEdx_wires_value
       - pfcand_dEdx_wires_error
-      
-      # PID p-values - wires
       - pfcand_PID_pval_wires_ele
       - pfcand_PID_pval_wires_mu
       - pfcand_PID_pval_wires_pi
       - pfcand_PID_pval_wires_kaon
       - pfcand_PID_pval_wires_proton
-    length: 100
-    
-  # PFCand 4-vectors (px, py, pz, e) for Lorentz group operations
+
   pf_vectors:
-    length: 100
-    pad_mode: wrap
+    length: 128
     vars:
-      - [pfcand_px, null]
-      - [pfcand_py, null]
-      - [pfcand_pz, null]
-      - [pfcand_e, null]
-  
-  # PFCand mask for valid constituents
+      # [var, subtract_by, multiply_by, clip_min, clip_max]
+      - [pf_px, 0, 1, -1000000, 1000000]
+      - [pf_py, 0, 1, -1000000, 1000000]
+      - [pf_pz, 0, 1, -1000000, 1000000]
+      - [pf_e, 0, 1, -1000000, 1000000]
+
   pf_mask:
-    length: 100
-    pad_mode: constant
+    length: 128
     vars:
-      - [pfcand_mask, null]
+      - pfcand_mask
+
+  # ==================== v0 stream ====================
+  v0_features:
+    length: 12
+    vars:
+      - v0_pdg
+      - v0_invM
+      - v0_chi2
+      - v0_chi2_norm
+      - v0_ndof
+      - v0_ntracks
+      - v0_p
+      - v0_prel
+      - v0_thetarel
+      - v0_phirel
+      - v0_dxy
+      - v0_dxyz
+      - v0_cosPointing
+      - v0_correctedMass
+      - v0_dx
+      - v0_dy
+      - v0_dz
+
+  v0_vectors:
+    length: 12
+    vars:
+      - [v0_px, 0, 1, -1000000, 1000000]
+      - [v0_py, 0, 1, -1000000, 1000000]
+      - [v0_pz, 0, 1, -1000000, 1000000]
+      - [v0_e, 0, 1, -1000000, 1000000]
+
+  v0_mask:
+    length: 12
+    vars:
+      - v0_mask
+
+  # ==================== sv stream (secondary vertices, ALL variables) ====================
+  sv_features:
+    length: 10
+    vars:
+      - sv_chi2
+      - sv_chi2_norm
+      - sv_ndof
+      - sv_ntracks
+      - sv_mass
+      - sv_p
+      - sv_thetarel
+      - sv_phirel
+      - sv_dxy
+      - sv_dxyz
+      - sv_cosPointing
+      - sv_prel
+      - sv_correctedMass
+      - sv_dx
+      - sv_dy
+      - sv_dz
+
+  sv_vectors:
+    length: 10
+    vars:
+      - [sv_px, 0, 1, -1000000, 1000000]
+      - [sv_py, 0, 1, -1000000, 1000000]
+      - [sv_pz, 0, 1, -1000000, 1000000]
+      - [sv_e, 0, 1, -1000000, 1000000]
+
+  sv_mask:
+    length: 10
+    vars:
+      - sv_mask
 
 labels:
   type: simple
-  value: [recojet_isB, recojet_isC, recojet_isS, recojet_isD, recojet_isU]
+  value: [recojet_isB, recojet_isC, recojet_isS, recojet_isU, recojet_isD]
 
 observers:
-  # Jet-level variables for monitoring/debugging
-  - jet_mass
-  - jet_p
-  - jet_e
-  - jet_phi
-  - jet_theta
   - jet_pT
-  - jet_nnhad
-  - jet_ngamma
-  - jet_nchad
-  - jet_nel
-  - jet_nmu
+  - jet_eta
+  - jet_mass
   - jet_nconst
+  - n_pfcand
+  - n_sv
+  - n_sv_jets
+  - event_njet
+  - EVT_Thrust_cosTheta
