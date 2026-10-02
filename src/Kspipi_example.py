@@ -116,11 +116,18 @@ class Analysis():
             # class 16 with a primary quark: getJetPID is -1 otherwise
             df = df.Define("jetPID", "AlephSelection::getJetPID(ClassBitset, MCParticles)")
             df = df.Filter("jetPID > 0" if self.ana_args.MCflavour is None else f"jetPID == {self.ana_args.MCflavour}")
-        # at least two jets of the exclusive two-jet clustering of all particle-flow candidates
-        df = df.Define("pjetc", "JetClusteringUtils::set_pseudoJets(ReconstructedParticle::get_px(RecoParticles), ReconstructedParticle::get_py(RecoParticles), "
-                                "ReconstructedParticle::get_pz(RecoParticles), ReconstructedParticle::get_e(RecoParticles))")
+        # at least two jets of the exclusive two-jet clustering of the analysis particles: RecoParticles
+        # without the photons and neutral hadrons below kNeutralMinE; constituents mapped back to RecoParticles indices
+        df = df.Define("RP_e", "ReconstructedParticle::get_e(RecoParticles)")
+        df = df.Define("AnaP_idx", "AlephSelection::analysisParticleIndices(ParticleID, RP_e, AlephSelection::kNeutralMinE)")
+        df = df.Define("AnaP_px", "ROOT::VecOps::Take(ReconstructedParticle::get_px(RecoParticles), AnaP_idx)")
+        df = df.Define("AnaP_py", "ROOT::VecOps::Take(ReconstructedParticle::get_py(RecoParticles), AnaP_idx)")
+        df = df.Define("AnaP_pz", "ROOT::VecOps::Take(ReconstructedParticle::get_pz(RecoParticles), AnaP_idx)")
+        df = df.Define("AnaP_e", "ROOT::VecOps::Take(RP_e, AnaP_idx)")
+        df = df.Define("pjetc", "JetClusteringUtils::set_pseudoJets(AnaP_px, AnaP_py, AnaP_pz, AnaP_e)")
         df = df.Define("_jet", "JetClustering::clustering_ee_kt(2, 2, 1, 0)(pjetc)")
-        df = df.Filter("JetConstituentsUtils::count_jets(JetConstituentsUtils::build_constituents_cluster(RecoParticles, JetClusteringUtils::get_constituents(_jet))) > 1")
+        df = df.Define("_jetc", "AlephSelection::constituentsToRecoIndices(JetClusteringUtils::get_constituents(_jet), AnaP_idx)")
+        df = df.Filter("JetConstituentsUtils::count_jets(JetConstituentsUtils::build_constituents_cluster(RecoParticles, _jetc)) > 1")
         df = df.Define("event_number", "EventHeader.eventNumber")
         df = df.Define("run_number", "EventHeader.runNumber")
 

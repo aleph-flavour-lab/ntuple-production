@@ -399,15 +399,24 @@ class Analysis():
         df = df.Define("RP_e", "ReconstructedParticle::get_e(RecoParticles)")
         df = df.Define("RP_m", "ReconstructedParticle::get_mass(RecoParticles)")
 
+        # Analysis particles: RecoParticles without the photons and neutral hadrons below
+        # kNeutralMinE; the jets, EVT_Evis and the thrust are built from them
+        df = df.Define("AnaP_idx", "AlephSelection::analysisParticleIndices(ParticleID, RP_e, AlephSelection::kNeutralMinE)")
+        df = df.Define("AnaP_px", "ROOT::VecOps::Take(RP_px, AnaP_idx)")
+        df = df.Define("AnaP_py", "ROOT::VecOps::Take(RP_py, AnaP_idx)")
+        df = df.Define("AnaP_pz", "ROOT::VecOps::Take(RP_pz, AnaP_idx)")
+        df = df.Define("AnaP_e", "ROOT::VecOps::Take(RP_e, AnaP_idx)")
+
         # Define pseudo-jets
         ####################################################################################################
-        df = df.Define("pjetc", "JetClusteringUtils::set_pseudoJets(RP_px, RP_py, RP_pz, RP_e)")
+        df = df.Define("pjetc", "JetClusteringUtils::set_pseudoJets(AnaP_px, AnaP_py, AnaP_pz, AnaP_e)")
 
         # Exclusive ee_kt (Durham) clustering to exactly 2 jets, E-ordered, E-scheme; jet constituents
         ####################################################################################################
         df = df.Define("_jet", "JetClustering::clustering_ee_kt(2, 2, 1, 0)(pjetc)")
         df = df.Define("jets","JetClusteringUtils::get_pseudoJets(_jet)" )
-        df = df.Define("_jetc", "JetClusteringUtils::get_constituents(_jet)") 
+        # constituent indices into RecoParticles (and the index-parallel ParticleID)
+        df = df.Define("_jetc", "AlephSelection::constituentsToRecoIndices(JetClusteringUtils::get_constituents(_jet), AnaP_idx)")
         df = df.Define("jetc", "JetConstituentsUtils::build_constituents_cluster(RecoParticles, _jetc)")
         df = df.Define("jetConstitutentsTypes", f"AlephSelection::build_constituents_Types()(ParticleID, _jetc)")
         df = df.Define("JetClustering_d23", "std::sqrt(JetClusteringUtils::get_exclusive_dmerge(_jet, 2))")
@@ -418,12 +427,12 @@ class Analysis():
         df = df.Define("event_invariant_mass", "JetConstituentsUtils::InvariantMass(jet_p4[0], jet_p4[1])")
 
         ### Thrust variables
-        # exact thrust {T, x, y, z}, repacked into the {T, x, ex, y, ey, z, ez} layout of getAxisCosTheta/getThrustPointing
-        df = df.Define("EVT_thrustExact",   "Algorithms::calculate_thrust()(RP_px, RP_py, RP_pz)")
+        # exact thrust {T, x, y, z} of the analysis particles, repacked into the {T, x, ex, y, ey, z, ez} layout of getAxisCosTheta/getThrustPointing
+        df = df.Define("EVT_thrustExact",   "Algorithms::calculate_thrust()(AnaP_px, AnaP_py, AnaP_pz)")
         df = df.Define("EVT_thrustNP",      "EVT_thrustExact[0] < 0 ? ROOT::VecOps::RVec<float>{-1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f} : "
                                             "ROOT::VecOps::RVec<float>{EVT_thrustExact[0], EVT_thrustExact[1], 0.f, EVT_thrustExact[2], 0.f, EVT_thrustExact[3], 0.f}")
-        df = df.Define("RP_thrustangleNP",  'Algorithms::getAxisCosTheta(EVT_thrustNP, RP_px, RP_py, RP_pz)')
-        df = df.Define("EVT_thrust",        'Algorithms::getThrustPointing(1.)(RP_thrustangleNP, RP_e, EVT_thrustNP)')
+        df = df.Define("AnaP_thrustangleNP", 'Algorithms::getAxisCosTheta(EVT_thrustNP, AnaP_px, AnaP_py, AnaP_pz)')
+        df = df.Define("EVT_thrust",        'Algorithms::getThrustPointing(1.)(AnaP_thrustangleNP, AnaP_e, EVT_thrustNP)')
         df = df.Define("EVT_Thrust_Mag",    "EVT_thrust.at(0)")
         df = df.Define("EVT_Thrust_X",      "EVT_thrust.at(1)")
         df = df.Define("EVT_Thrust_Y",      "EVT_thrust.at(3)")
@@ -828,9 +837,9 @@ class Analysis():
         ############################################# Particle Flow Level Variables #######################################################
         df = df.Define("pfcand_isMu",     "AlephSelection::get_isType(jetConstitutentsTypes,2)")
         df = df.Define("pfcand_isEl",     "AlephSelection::get_isType(jetConstitutentsTypes,1)")
-        df = df.Define("pfcand_isGamma",  "AlephSelection::get_isType(jetConstitutentsTypes,4)")
+        df = df.Define("pfcand_isGamma",  "AlephSelection::get_isType(jetConstitutentsTypes,AlephSelection::kPFPhoton)")
         df = df.Define("pfcand_isChargedHad", f"AlephSelection::get_isType(jetConstitutentsTypes,{PF_CHARGED_HAD})")
-        df = df.Define("pfcand_isNeutralHad", "AlephSelection::get_isType(jetConstitutentsTypes,5)")
+        df = df.Define("pfcand_isNeutralHad", "AlephSelection::get_isType(jetConstitutentsTypes,AlephSelection::kPFNeutralHad)")
 
 
         ############################################# Kinematics and PID #######################################################
@@ -1012,7 +1021,7 @@ class Analysis():
 
 
 
-        df = df.Define("EVT_Evis",          "Sum(RP_e)")  # total visible energy: sum over all particle-flow candidates [GeV]
+        df = df.Define("EVT_Evis",          "Sum(AnaP_e)")  # total visible energy: sum over the analysis particles [GeV]
         
 
         return df
