@@ -538,6 +538,46 @@ get_isType(const rv::RVec<FCCAnalysesJetConstituentsData>& jcs, float type) {
     return out;
 }
 
+// Energy-flow type codes (ParticleID.type) of photons and neutral hadrons.
+constexpr int kPFPhoton = 4;
+constexpr int kPFNeutralHad = 5;
+
+// Energy-flow photons and neutral hadrons below this energy are left out of the
+// analysis particles (jets, visible energy, thrust) [GeV].
+constexpr double kNeutralMinE = 1.;
+
+// RecoParticles indices of the analysis particles: every particle except the
+// photons and neutral hadrons with energy below eMin.
+// ParticleID is index-parallel to RecoParticles.
+inline rv::RVec<int> analysisParticleIndices(const rv::RVec<edm4hep::ParticleIDData> &pid,
+                                             const rv::RVec<float> &energy, double eMin) {
+  if (pid.size() != energy.size())
+    throw std::runtime_error("analysisParticleIndices: ParticleID and RecoParticles differ in size");
+  rv::RVec<int> idx;
+  idx.reserve(energy.size());
+  for (size_t i = 0; i < energy.size(); ++i) {
+    const bool softNeutral = (pid[i].type == kPFPhoton || pid[i].type == kPFNeutralHad) && energy[i] < eMin;
+    if (!softNeutral) idx.push_back(static_cast<int>(i));
+  }
+  return idx;
+}
+
+// Jet constituents as RecoParticles indices: the clustering numbers its input
+// list, which is RecoParticles restricted to inputIdx.
+inline std::vector<std::vector<int>>
+constituentsToRecoIndices(const std::vector<std::vector<int>> &constituents,
+                          const rv::RVec<int> &inputIdx) {
+  std::vector<std::vector<int>> out;
+  out.reserve(constituents.size());
+  for (const auto &jet : constituents) {
+    std::vector<int> j;
+    j.reserve(jet.size());
+    for (int k : jet) j.push_back(inputIdx.at(k));
+    out.push_back(std::move(j));
+  }
+  return out;
+}
+
 struct build_constituents_Types {
     rv::RVec<FCCAnalysesJetConstituentsData>
     operator()(const rv::RVec<edm4hep::ParticleIDData> &rpid,
