@@ -1022,8 +1022,8 @@ class Analysis():
 
 
         df = df.Define("EVT_Evis",          "Sum(RP_sel_e)")  # total visible energy: sum over the analysis particles [GeV]
-        df = df.Define("jetPartonPDG", f"AlephSelection::getJetPartonPDG({coll['GenParticles']}, jets)")
-        df = df.Define("jetPartonCosTheta", f"AlephSelection::getJetPartonCosTheta({coll['GenParticles']}, jets, 0.8)")
+        df = df.Define("jetPartonPDG", f"AlephSelection::getJetPartonPDG({coll['GenParticles']}, jets, 0.8)")
+        df = df.Define("jetPartonCosTheta", f"AlephSelection::getJetPartonCosTheta({coll['GenParticles']}, jets)")
         
 
         return df
