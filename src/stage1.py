@@ -1022,8 +1022,13 @@ class Analysis():
 
 
         df = df.Define("EVT_Evis",          "Sum(RP_sel_e)")  # total visible energy: sum over the analysis particles [GeV]
-        df = df.Define("jetPartonPDG", f"AlephSelection::getJetPartonPDG({coll['GenParticles']}, jets, 0.8)")
-        df = df.Define("jetPartonCosTheta", f"AlephSelection::getJetPartonCosTheta({coll['GenParticles']}, jets)")
+        if self.ana_args.doData:
+            # no MC truth in data: the "no match" values of the MC functions, one per jet
+            df = df.Define("jetPartonPDG", "ROOT::VecOps::RVec<int>(jets.size(), 0)")
+            df = df.Define("jetPartonCosTheta", "ROOT::VecOps::RVec<float>(jets.size(), -2.f)")
+        else:
+            df = df.Define("jetPartonPDG", f"AlephSelection::getJetPartonPDG({coll['GenParticles']}, jets, 0.8)")
+            df = df.Define("jetPartonCosTheta", f"AlephSelection::getJetPartonCosTheta({coll['GenParticles']}, jets)")
         
 
         return df
