@@ -39,7 +39,7 @@ Fraction of events to process can be set via `--fraction <val>`, default is to p
 fccanalysis run stage1.py -- --tag <version_tag> --doData 
 ```
 
-Output files will be in the working directory; with `--batch` (production with `fccanalysis submit`) they go to `/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedData/<year>/stage1/<version_tag>/<year>/`.
+Output files will be in the working directory; with `--batch` (production with `fccanalysis submit`) they go to `/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedData/<year>/stage1/<version_tag>/1994/` (the last folder is the process name, fixed to `1994` in `stage1.py`).
 
 `--year` and `--fraction` is also supported as an argument here. 
 

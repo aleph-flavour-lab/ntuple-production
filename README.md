@@ -15,7 +15,7 @@ cd ntuple-production
 git submodule update --init --recursive
 ```
 
-The key4hep stack is taken from `FCCAnalyses/.fccana/stack_pin` if that file exists. The file is not part of the repository, so on a fresh clone `setup.sh` sources the latest key4hep release. To use the 2025-05-29 release, create the pin once after cloning:
+The key4hep stack is taken from `FCCAnalyses/.fccana/stack_pin` if that file exists, unless a key4hep stack is already set up in the shell. The file is not part of the repository, so on a fresh clone `setup.sh` sources the latest key4hep release. To use the 2025-05-29 release, create the pin once after cloning:
 
 ```bash
 mkdir -p FCCAnalyses/.fccana
@@ -38,7 +38,7 @@ fccanalysis build -j 8
 cd ..
 ```
 
-> To use another stack, write the path of its `setup.sh` to `FCCAnalyses/.fccana/stack_pin`. `FCCAnalyses/setup.sh` also accepts `-l/--latest`, `-n/--nightlies`, or `-b/--from-build` if you need a different stack than the pinned one (see `source FCCAnalyses/setup.sh --help`).
+> To use another stack, write the path of its `setup.sh` to `FCCAnalyses/.fccana/stack_pin`. `FCCAnalyses/setup.sh` also accepts `-l/--latest`, `-n/--nightlies`, or `-b/--from-build` if you need a different stack than the pinned one (see `source FCCAnalyses/setup.sh --help`). After changing the stack (including creating the pin in a checkout that was already built), open a new shell, `source setup.sh` and rebuild with `fccanalysis build --clean-build -j 8`: a plain `fccanalysis build` keeps the CMake configuration of the previous stack.
 
 Every new shell session, just re-run `source setup.sh` from the repo root before working with `fccanalysis` or the plotting scripts.
 
