@@ -103,11 +103,13 @@ jobs:
 
       # the checkout is mounted at the same path in every run, so a restored build finds itself.
       # git runs as root in the container, on a checkout owned by the runner's user: it reads
-      # the repository only if it is declared safe (for the commit hashes in the logs)
+      # the repository only if it is declared safe (for the commit hashes in the logs; with
+      # GITHUB_EVENT_NAME and GITHUB_SHA, run_stage1_ci.sh names the test merge of a pull request)
       - name: Start the container
         run: >
           docker run -d --name ci -v "$GITHUB_WORKSPACE":/Package -v /cvmfs:/cvmfs:shared
-          -e GITHUB_ACTIONS -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*'
+          -e GITHUB_ACTIONS -e GITHUB_EVENT_NAME -e GITHUB_SHA
+          -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*'
           "$IMAGE" sleep infinity
 
       - name: Build FCCAnalyses (skipped on a cache hit)

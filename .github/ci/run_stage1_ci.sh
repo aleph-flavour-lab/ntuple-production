@@ -71,6 +71,11 @@ annotate() {  # annotate LEVEL TITLE MESSAGE: an annotation in GitHub Actions, p
   if [[ -n ${GITHUB_ACTIONS:-} ]]; then echo "::$1 title=$2::$3"; else echo "${1^^} [$2] $3"; fi
 }
 
+fail_early() {  # fail_early LOG TITLE MESSAGE: MESSAGE as the step's log (for job_summary.py) and an annotation
+  echo "ERROR: $3" > "$1"
+  annotate error "$2" "$3"
+}
+
 setup_env() {
   local log=$WORK/logs/setup.log
   if [[ -n ${KEY4HEP_STACK:-} && $KEY4HEP_STACK != "$STACK" ]] || [[ -n ${FCCANA_LOCAL_DIR:-} && $FCCANA_LOCAL_DIR != "$REPO/FCCAnalyses" ]]; then
@@ -108,7 +113,7 @@ step_build() {
     return 0
   fi
   if [[ -e $REPO/FCCAnalyses/install || -e $REPO/FCCAnalyses/build ]]; then
-    annotate error build "FCCAnalyses has a build for another stack (${built_with:-unknown}); remove FCCAnalyses/build and FCCAnalyses/install, or rebuild with $STACK"
+    fail_early "$WORK/logs/build.log" build "FCCAnalyses has a build for another stack (${built_with:-unknown}); remove FCCAnalyses/build and FCCAnalyses/install, or rebuild with $STACK"
     return 1
   fi
   echo "building FCCAnalyses with $NTHREADS threads (log: $WORK/logs/build.log)"
@@ -146,18 +151,20 @@ step_stage1() {
   esac
   local root log=$WORK/logs/stage1_$mode.log
   root=$WORK/output/$(output_name "$mode")
+  # stale results of an earlier run in the same WORKDIR must not pass the check (nor be
+  # taken by job_summary.py as the reason of a failure)
+  rm -f "$root" "$WORK/output/branches_$mode.txt" "$WORK/output/check_$mode.txt"
   if [[ ! -f $INPUT/beamspot.json ]]; then
-    annotate error "stage1 $mode" "no synthetic input in $INPUT: run the inputs step first"
+    fail_early "$log" "stage1 $mode" "no synthetic input in $INPUT: run the inputs step first"
     return 1
   fi
   mkdir -p "$(dirname "$root")"
-  # stale results of an earlier run in the same WORKDIR must not pass the check
-  rm -f "$root" "$WORK/output/branches_$mode.txt" "$WORK/output/check_$mode.txt"
   echo "stage1 ${args[*]} with $NTHREADS threads (log: $log)"
   CI_INPUT_DIR=$INPUT CI_OUTPUT_DIR=$(dirname "$root") CI_NTHREADS=$NTHREADS \
     ALEPH_BEAMSPOT_JSON=$INPUT/beamspot.json \
     timeout "$STAGE1_TIMEOUT" fccanalysis run "$CI_DIR/stage1_ci.py" -- --tag ci "${args[@]}" > "$log" 2>&1
   local rc=$?
+  [[ $rc -eq 124 ]] && echo "ERROR: stage1 stopped at the time limit of $STAGE1_TIMEOUT s" >> "$log"
   if [[ $rc -ne 0 ]]; then
     local first
     first=$(grep -m1 -E 'error:|ERROR|Error in|Traceback|terminate called' "$log")
@@ -206,6 +213,19 @@ step_compare() {
     fi
   done
   [[ $nfail -eq 0 ]]
+}
+
+# the commit under test, for the summary: the plain short hash, except for GitHub's test merge
+# of a pull request (GITHUB_SHA in a pull_request run), shown with the pull request's head
+# commit (second parent) and main (first parent); nothing if git cannot read the repository
+commit_label() {
+  local sha short p1 p2 more
+  read -r sha short p1 p2 more < <(git -C "$REPO" log -1 --format='%H %h %p' 2>/dev/null)
+  if [[ ${GITHUB_EVENT_NAME:-} == pull_request && -n $sha && $sha == "${GITHUB_SHA:-}" && -n $p2 && -z $more ]]; then
+    echo "test merge $short of $p2 into $p1"
+  else
+    echo "$short"
+  fi
 }
 
 record() {  # record STEP RC SECONDS: the summary line, also left in WORK/logs/STEP.status
@@ -277,7 +297,8 @@ fi
 
 echo "==================== summary ===================="
 {
-  echo "stage1 CI on synthetic input ($(git -C "$REPO" log -1 --format='%h' 2>/dev/null), $NTHREADS threads, $NEVENTS events per file)"
+  label=$(commit_label)
+  echo "stage1 CI on synthetic input (${label:+$label, }$NTHREADS threads, $NEVENTS events per file)"
   printf '%s\n' "${SUMMARY[@]}"
   echo "total   $(( $(date +%s) - T_START ))s, failed steps: $NFAIL"
 } | tee "$WORK/summary.txt"
