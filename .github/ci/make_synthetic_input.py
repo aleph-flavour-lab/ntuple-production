@@ -11,9 +11,10 @@ types of the converted ALEPH files that stage1.py reads:
 The events are random but deterministic: event i of a file depends only on (--seed, data or
 mc, i), and the files are the same for any number of worker processes (--jobs; the events
 are written in chunks of CHUNK events and joined in order). Z -> q qbar at the Z pole with
-prompt charged hadrons, photons, neutral hadrons, leptons, K0s -> pi pi, Lambda -> p pi,
-phi -> K K, D*+ -> D0 pi (D0 -> K pi), D+ -> K pi pi and B -> D (-> K pi pi) + 3 pi with
-displaced vertices, measured as perigee helices with covariances, hit counts and dE/dx.
+prompt charged hadrons, photons, neutral hadrons, leptons, K0s -> pi pi (soft and leading),
+Lambda -> p pi, phi -> K K, D*+ -> D0 pi (D0 -> K pi), D+ -> K pi pi and B -> D (-> K pi pi)
+or D* + 3 pi with displaced vertices, measured as perigee helices with covariances, hit
+counts and dE/dx.
 The data events are spread over three selected runs of the run list, each with its own
 beam-spot centre, and one rejected run; a few events fail the hadronic class bit.
 
@@ -24,6 +25,7 @@ size, kinematics and fractions are generic; nothing is fitted to ALEPH data.
     (broad VDET/ITC/TPC hit counts, some below the TPC-hit cut), d0/z0 residuals with
     non-Gaussian tails that the covariance does not describe, a chi2 tail across the
     chi2/ndf cut, a covariance that is not positive definite, or |z0| around the cut;
+    a few dE/dx measurements have a low truncated mean;
     some particles have a second, short track segment without an energy-flow object,
     which mostly fails the track selection.
   - Awkward events (AWKWARD_FRACTION of the hadronic events; legal, but unusual): one
@@ -82,6 +84,11 @@ P_SEGMENT = 0.25      # an extra short segment of the same particle, without an 
 P_NO_EF = 0.05        # a track without an energy-flow object (as in the converted files)
 P_DEDX_FAIL = (0.15, 0.05)           # failed dE/dx measurement (pads, wires) of a track
 P_DEDX_FAIL_SEGMENT = (0.6, 0.5)     # the same, for an extra short segment
+P_DEDX_LOW = (0.004, 0.004)          # low truncated mean: expected value x U(DEDX_LOW_SCALE), per leg (error unchanged)
+DEDX_LOW_SCALE = (0.2, 0.6)
+P_B_DSTAR = 0.25     # b hemispheres with B -> D* a1 (else B -> D a1), D* -> D0 pi, D0 -> K pi
+P_K0S_LEAD = 0.2     # hemispheres (any flavour) with a leading K0s -> pi pi from the primary vertex, p/E_beam in K0S_LEAD_X
+K0S_LEAD_X = (0.1, 0.45)
 AWKWARD_FRACTION = 0.025
 AWKWARD_KINDS = ("one_track", "no_track", "precise", "split_singular", "duplicate", "huge_error")
 
@@ -196,6 +203,19 @@ class Event:
         return end
 
 
+def add_dstar(rng, ev, p4, vtx, q):
+    """D* of charge q produced at vtx: D* -> D0 pi (strong decay at vtx), D0 -> K pi (displaced)."""
+    ds = ev.add("Dstar", q, p4, vtx, status=2, sign=q)
+    ev.mc[ds]["end"] = vtx
+    d04, pis4 = two_body(rng, p4, M["D0"], M["pi"])
+    d0 = ev.add("D0", 0, d04, vtx, sign=q)
+    ev.add("pi", q, pis4, vtx, sign=q)
+    dv = ev.decay_point(rng, d0, CTAU["D0"])
+    k4, pi4 = two_body(rng, d04, M["K"], M["pi"])
+    ev.add("K", -q, k4, dv, sign=-q)
+    ev.add("pi", q, pi4, dv, sign=q)
+
+
 def gen_hemisphere(rng, ev, pv, axis, flavour, sign):
     """Particles of one hemisphere; sign = +1 for the quark, -1 for the antiquark side."""
     # leading heavy hadron
@@ -203,17 +223,22 @@ def gen_hemisphere(rng, ev, pv, axis, flavour, sign):
         pB = rng.uniform(0.6, 0.85) * E_BEAM
         b = ev.add("B", 0, p4_of(M["B"], along(rng, axis, pB, 0.3)), pv, sign=sign)
         bv = ev.decay_point(rng, b, CTAU["B"])
-        d4, a4 = two_body(rng, ev.mc[b]["p4"], M["Dplus"], M["a1"])
-        d = ev.add("Dplus", -sign, d4, bv, sign=-sign)
-        a = ev.add("a1", sign, a4, bv, status=2, sign=sign)
-        dv = ev.decay_point(rng, d, CTAU["Dplus"])
-        ks4, pi4 = two_body(rng, d4, M["Kstar0"], M["pi"])
-        ev.add("pi", -sign, pi4, dv, sign=-sign)
-        kst = ev.add("Kstar0", 0, ks4, dv, status=2, sign=-sign)
-        k4, p4 = two_body(rng, ks4, M["K"], M["pi"])
-        ev.add("K", -sign, k4, dv, sign=-sign)
-        ev.add("pi", sign, p4, dv, sign=sign)
-        ev.mc[kst]["end"] = dv
+        if rng.random() < P_B_DSTAR:     # B -> D* a1
+            ds4, a4 = two_body(rng, ev.mc[b]["p4"], M["Dstar"], M["a1"])
+            add_dstar(rng, ev, ds4, bv, -sign)
+            a = ev.add("a1", sign, a4, bv, status=2, sign=sign)
+        else:                            # B -> D a1, D -> K* pi, K* -> K pi
+            d4, a4 = two_body(rng, ev.mc[b]["p4"], M["Dplus"], M["a1"])
+            d = ev.add("Dplus", -sign, d4, bv, sign=-sign)
+            a = ev.add("a1", sign, a4, bv, status=2, sign=sign)
+            dv = ev.decay_point(rng, d, CTAU["Dplus"])
+            ks4, pi4 = two_body(rng, d4, M["Kstar0"], M["pi"])
+            ev.add("pi", -sign, pi4, dv, sign=-sign)
+            kst = ev.add("Kstar0", 0, ks4, dv, status=2, sign=-sign)
+            k4, p4 = two_body(rng, ks4, M["K"], M["pi"])
+            ev.add("K", -sign, k4, dv, sign=-sign)
+            ev.add("pi", sign, p4, dv, sign=sign)
+            ev.mc[kst]["end"] = dv
         r4, pi4 = two_body(rng, a4, M["rho"], M["pi"])
         ev.mc[a]["end"] = bv
         ev.add("pi", sign, pi4, bv, sign=sign)
@@ -225,15 +250,7 @@ def gen_hemisphere(rng, ev, pv, axis, flavour, sign):
     elif flavour == 4 or rng.random() < 0.08:
         pc = rng.uniform(0.35, 0.7) * E_BEAM
         if rng.random() < 0.6:   # D*+ -> D0 pi+, D0 -> K- pi+
-            ds = ev.add("Dstar", sign, p4_of(M["Dstar"], along(rng, axis, pc, 0.3)), pv, status=2, sign=sign)
-            ev.mc[ds]["end"] = pv
-            d04, pis4 = two_body(rng, ev.mc[ds]["p4"], M["D0"], M["pi"])
-            d0 = ev.add("D0", 0, d04, pv, sign=sign)
-            ev.add("pi", sign, pis4, pv, sign=sign)
-            dv = ev.decay_point(rng, d0, CTAU["D0"])
-            k4, pi4 = two_body(rng, d04, M["K"], M["pi"])
-            ev.add("K", -sign, k4, dv, sign=-sign)
-            ev.add("pi", sign, pi4, dv, sign=sign)
+            add_dstar(rng, ev, p4_of(M["Dstar"], along(rng, axis, pc, 0.3)), pv, sign)
         else:                    # D+ -> K*0bar pi+, K*0bar -> K- pi+
             d = ev.add("Dplus", sign, p4_of(M["Dplus"], along(rng, axis, pc, 0.3)), pv, sign=sign)
             dv = ev.decay_point(rng, d, CTAU["Dplus"])
@@ -244,9 +261,15 @@ def gen_hemisphere(rng, ev, pv, axis, flavour, sign):
             k4, p4 = two_body(rng, ks4, M["K"], M["pi"])
             ev.add("K", -sign, k4, dv, sign=-sign)
             ev.add("pi", sign, p4, dv, sign=sign)
-    # strange hadrons
+    # strange hadrons: a soft K0s from the fragmentation and a hard leading one; together they span
+    # the momentum tiers of the V0 selection
+    k0s_p = []
     if rng.random() < (0.6 if flavour == 3 else 0.35):
-        ks = ev.add("K0S", 0, p4_of(M["K0S"], along(rng, axis, rng.expovariate(1 / 4.0) + 0.5, 0.4)), pv)
+        k0s_p.append(rng.expovariate(1 / 4.0) + 0.5)
+    if rng.random() < P_K0S_LEAD:
+        k0s_p.append(rng.uniform(*K0S_LEAD_X) * E_BEAM)
+    for pk in k0s_p:
+        ks = ev.add("K0S", 0, p4_of(M["K0S"], along(rng, axis, pk, 0.4)), pv)
         kv = ev.decay_point(rng, ks, CTAU["K0S"])
         a4, b4 = two_body(rng, ev.mc[ks]["p4"], M["pi"], M["pi"])
         ia = ev.add("pi", 1, a4, kv)
@@ -495,12 +518,15 @@ def fill_frame(rng, ev, mode, run, ievt, classbits, stats, podio, edm4hep, ROOT)
         # dE/dx on both legs; a failed leg stores the track omega (the converter's convention)
         p = math.sqrt(sum(x * x for x in part["p4"][:3]))
         bg = p / part["m"] if part["m"] > 0 else 1e4
-        for coll, res, fail in ((pads, 0.10, dedx_fail[0]), (wires, 0.06, dedx_fail[1])):
+        for coll, res, fail, low in ((pads, 0.10, dedx_fail[0], P_DEDX_LOW[0]), (wires, 0.06, dedx_fail[1], P_DEDX_LOW[1])):
             d = coll.create()
             q = edm4hep.Quantity()
             sigma = res * math.sqrt(21.0 / max(hits[2], 4))
-            if rng.random() < fail:
+            u = rng.random()
+            if u < fail:
                 q.value = abs(float(meas[2]))
+            elif u < fail + low:          # low tail
+                q.value = float(dedx_mean(bg) * rng.uniform(*DEDX_LOW_SCALE))
             else:
                 q.value = float(dedx_mean(bg) * (1.0 + sigma * rng.gauss(0, 1)))
             q.error = float(dedx_mean(bg) * sigma)
