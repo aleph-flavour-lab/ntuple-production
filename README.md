@@ -42,7 +42,24 @@ Every new shell session, just re-run `source setup.sh` from the repo root before
 - [`ROOT-Plotting/`](ROOT-Plotting/) — PyROOT-based plotting scripts. *Probably obsolete to be double checked*
 - [`FCCAnalyses/`](FCCAnalyses/) — FCCAnalyses submodule (analyzers, build system, `fccanalysis` CLI).
 - [`test/`](test/) — Validation datasets and scripts used to cross-check ntuple production across framework versions. *Probably obsolete to be double checked*
+- [`.github/`](.github/) — CI workflows and the scripts they run. See [Continuous integration](#continuous-integration).
 
 ## Quick start
 
 See [src/README.md](src/README.md) for how to run stage1 (on data or MC) and stage2, and [Data_MC_plotting/README.md](Data_MC_plotting/README.md) for making comparison plots from the resulting ntuples.
+
+## Continuous integration
+
+Every pull request to `main` runs stage1 (`--doData` and `--MCflavour 5`) with GitHub Actions on two small synthetic files (data-like and MC-like toy Z → qq̄ events with the collections of the converted ALEPH files, generated in the job), for the pull request and for `main`, and compares the two outputs event by event. Pushes to `main` and manual runs (Actions tab) run stage1 without the comparison.
+
+- The check **fails** if the pull request breaks the run (FCCAnalyses build, input generation, stage1, or an empty stage1 output) or if the comparison cannot be made. Output differences are **informational**; a failure on the `main` side only gives a warning.
+- The job summary on the run page, also posted as a comment on the pull request, shows the status of each step (with the error lines of a failed one) and the branches added, removed and changed. Logs and outputs: artifact `stage1-ci-logs-and-outputs` of the run, kept 7 days.
+- The synthetic events exercise the code, not the physics: identical outputs do not prove identical outputs on real data, and code that the synthetic events do not reach is not tested.
+
+The CI has its own key4hep stack, pinned in `.github/ci/key4hep_stack` (not `FCCAnalyses/.fccana/stack_pin`). To run the same steps by hand (AlmaLinux 9 with `/cvmfs`, a new shell without a key4hep setup; `-h` lists the steps and options):
+
+```bash
+.github/ci/run_stage1_ci.sh
+```
+
+If `FCCAnalyses` was already built with another stack, the build step stops: use a separate clone.

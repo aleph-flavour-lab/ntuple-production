@@ -5,8 +5,8 @@ Reads what .github/ci/run_stage1_ci.sh leaves in its work directories: the step 
 lines (WORK/logs/<step>.status), the output checks (WORK/output/check_<mode>.txt) and,
 for a comparison with a base (main for a pull request), the comparison results
 (WORK/output/compare_<mode>.json, written by compare_stage1_outputs.py). For a failed step,
-the first error lines of the file that tells why are quoted: its log (WORK/logs/<step>.log,
-stage1_<mode>.log), the output check or the comparison output.
+up to five error lines (always the last one) of the file that tells why are quoted: its log
+(WORK/logs/<step>.log, stage1_<mode>.log), the output check or the comparison output.
 The checkout under test is called "this PR" in a pull-request run (GITHUB_EVENT_NAME, set
 by GitHub Actions), "this run" otherwise.
 Python standard library only, so that it runs outside the Key4hep environment.
