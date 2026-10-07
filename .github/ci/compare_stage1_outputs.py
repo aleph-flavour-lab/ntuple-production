@@ -118,7 +118,11 @@ def _compare_branch(name):
                 if nshape:
                     notes.append(f"{nshape} events with a different number of entries")
                 if nbad > nshape:   # some events differ in values, not only in length
-                    row["max_abs"], row["max_rel"], nonfinite = largest_differences(new, ref)
+                    try:
+                        row["max_abs"], row["max_rel"], nonfinite = largest_differences(new, ref)
+                    except Exception as exc:  # noqa: BLE001 - the counts above stay valid
+                        nonfinite = 0
+                        notes.append(f"largest difference not computed: {type(exc).__name__}")
                     if nonfinite:
                         notes.append(f"{nonfinite} NaN/inf values differ")
                 row["note"] = "; ".join(notes)

@@ -2,7 +2,8 @@
 """Markdown summary of a stage1 CI run, for the GitHub job summary page.
 
 Reads what .github/ci/run_stage1_ci.sh leaves in its work directories: the step status
-lines (WORK/logs/<step>.status), the output checks (WORK/output/check_<mode>.txt) and,
+lines (WORK/logs/<step>.status; a failed environment setup is recorded as the step "setup",
+with the log WORK/logs/setup.log), the output checks (WORK/output/check_<mode>.txt) and,
 for a comparison with a base (main for a pull request), the comparison results
 (WORK/output/compare_<mode>.json, written by compare_stage1_outputs.py). For a failed step,
 up to five error lines (always the last one) of the file that tells why are quoted: its log
@@ -10,7 +11,7 @@ up to five error lines (always the last one) of the file that tells why are quot
 The checkout under test is called "this PR" in a pull-request run (GITHUB_EVENT_NAME, set
 by GitHub Actions), "this run" otherwise.
 Python standard library only, so that it runs outside the Key4hep environment.
-Usage: job_summary.py WORK [--base-work BASE_WORK] [--base-label LABEL]
+Usage: job_summary.py WORK [--base-work BASE_WORK] [--base-label LABEL] [--no-base REASON]
 """
 import argparse
 import json
@@ -18,7 +19,7 @@ import os
 import re
 import unicodedata
 
-STEPS = ("build", "inputs", "data", "mc", "compare")
+STEPS = ("setup", "build", "inputs", "data", "mc", "compare")
 MODES = (("data", "data"), ("mc", "MC"))
 OPEN_TABLE_ROWS = 25   # longer tables of changed branches start collapsed
 THIS = "this PR" if os.environ.get("GITHUB_EVENT_NAME") == "pull_request" else "this run"
@@ -65,13 +66,15 @@ def status_table(work, base_work, base_label):
     for step in STEPS:
         head = step_status(work, step)
         if base_work:
-            if step in ("build", "inputs", "compare"):
-                base = step_status(base_work, step) or ("" if step == "compare" else "shared")
+            if step in ("setup", "compare"):   # setup: recorded only when it failed
+                base = step_status(base_work, step) or ""
+            elif step == "inputs" or (step == "build" and not step_status(base_work, "setup")):
+                base = step_status(base_work, step) or "shared"
             else:
                 base = step_status(base_work, step) or "not run"
             if head is None and not base:
                 continue
-            out.append(f"| {step} | {head or 'not run'} | {base} |")
+            out.append(f"| {step} | {head or ('' if step == 'setup' else 'not run')} | {base} |")
         elif head is not None:
             out.append(f"| {step} | {head} |")
     return out
@@ -257,6 +260,7 @@ def main():
     ap.add_argument("work", help="work directory of the checkout under test")
     ap.add_argument("--base-work", help="work directory of the base, when there was a comparison")
     ap.add_argument("--base-label", default="main", help="name of the base in the tables")
+    ap.add_argument("--no-base", metavar="REASON", help="no comparison with the base, for this reason")
     args = ap.parse_args()
     base_work = args.base_work if args.base_work and os.path.isdir(args.base_work) else None
 
@@ -272,6 +276,8 @@ def main():
             out += ["Full logs: job log and the logs-and-outputs artifact, on the run page.", ""]
     if base_work:
         out += comparison(args.work, args.base_label)
+    elif args.no_base:
+        out += [f"No comparison with {args.base_label}: {args.no_base}.", ""]
     checks = [read(os.path.join(args.work, "output", f"check_{m}.txt")) for m, _ in MODES]
     if any(checks):
         out += [f"<details><summary>What the synthetic input exercised ({THIS})</summary>", "", "```"]

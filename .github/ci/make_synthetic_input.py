@@ -227,17 +227,17 @@ def gen_hemisphere(rng, ev, pv, axis, flavour, sign):
             ds4, a4 = two_body(rng, ev.mc[b]["p4"], M["Dstar"], M["a1"])
             add_dstar(rng, ev, ds4, bv, -sign)
             a = ev.add("a1", sign, a4, bv, status=2, sign=sign)
-        else:                            # B -> D a1, D -> K* pi, K* -> K pi
+        else:                            # B -> D a1, D- -> K*0 pi-, K*0 -> K+ pi- (and c.c.)
             d4, a4 = two_body(rng, ev.mc[b]["p4"], M["Dplus"], M["a1"])
             d = ev.add("Dplus", -sign, d4, bv, sign=-sign)
             a = ev.add("a1", sign, a4, bv, status=2, sign=sign)
             dv = ev.decay_point(rng, d, CTAU["Dplus"])
             ks4, pi4 = two_body(rng, d4, M["Kstar0"], M["pi"])
             ev.add("pi", -sign, pi4, dv, sign=-sign)
-            kst = ev.add("Kstar0", 0, ks4, dv, status=2, sign=-sign)
+            kst = ev.add("Kstar0", 0, ks4, dv, status=2, sign=sign)
             k4, p4 = two_body(rng, ks4, M["K"], M["pi"])
-            ev.add("K", -sign, k4, dv, sign=-sign)
-            ev.add("pi", sign, p4, dv, sign=sign)
+            ev.add("K", sign, k4, dv, sign=sign)
+            ev.add("pi", -sign, p4, dv, sign=-sign)
             ev.mc[kst]["end"] = dv
         r4, pi4 = two_body(rng, a4, M["rho"], M["pi"])
         ev.mc[a]["end"] = bv

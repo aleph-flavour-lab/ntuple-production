@@ -76,10 +76,16 @@ fail_early() {  # fail_early LOG TITLE MESSAGE: MESSAGE as the step's log (for j
   annotate error "$2" "$3"
 }
 
+setup_failed() {  # setup_failed MESSAGE: the setup log, then MESSAGE (also added to the log, for job_summary.py)
+  cat "$WORK/logs/setup.log"
+  echo "ERROR: $1" >> "$WORK/logs/setup.log"
+  annotate error setup "$1"
+}
+
 setup_env() {
   local log=$WORK/logs/setup.log
   if [[ -n ${KEY4HEP_STACK:-} && $KEY4HEP_STACK != "$STACK" ]] || [[ -n ${FCCANA_LOCAL_DIR:-} && $FCCANA_LOCAL_DIR != "$REPO/FCCAnalyses" ]]; then
-    annotate error setup "this shell already has another Key4hep/FCCAnalyses setup; run from a fresh shell"
+    fail_early "$log" setup "this shell already has another Key4hep/FCCAnalyses setup; run from a fresh shell"
     return 1
   fi
   set --   # the setup scripts parse the positional parameters
@@ -88,15 +94,13 @@ setup_env() {
   # stop here if the stack did not set itself up: FCCAnalyses/setup.sh would otherwise source
   # another stack (its pinned one, or the latest release) without saying so
   if [[ ${KEY4HEP_STACK:-} != "$STACK" ]]; then
-    cat "$log"
-    annotate error setup "the Key4hep stack of .github/ci/key4hep_stack did not set up (KEY4HEP_STACK='${KEY4HEP_STACK:-}', expected $STACK)"
+    setup_failed "the Key4hep stack of .github/ci/key4hep_stack did not set up (KEY4HEP_STACK='${KEY4HEP_STACK:-}', expected $STACK)"
     return 1
   fi
   # shellcheck disable=SC1091
   source "$REPO/setup.sh" >> "$log" 2>&1
   if [[ ${KEY4HEP_STACK:-} != "$STACK" || ${FCCANA_LOCAL_DIR:-} != "$REPO/FCCAnalyses" ]]; then
-    cat "$log"
-    annotate error setup "environment setup failed (KEY4HEP_STACK='${KEY4HEP_STACK:-}', expected $STACK)"
+    setup_failed "setup.sh did not set up $REPO/FCCAnalyses with the CI stack (FCCANA_LOCAL_DIR='${FCCANA_LOCAL_DIR:-}', KEY4HEP_STACK='${KEY4HEP_STACK:-}')"
     return 1
   fi
   echo "stack: $KEY4HEP_STACK"
@@ -173,6 +177,7 @@ step_stage1() {
     echo "---- last lines of the log:"
     tail -15 "$log"
     annotate error "stage1 $mode" "exit status $rc: ${first:-see the log}"
+    rm -f "$root"   # a partial output (crash, time limit) must not be compared
     return 1
   fi
   python "$CI_DIR/check_stage1_output.py" "$root" --branches-out "$WORK/output/branches_$mode.txt" \
@@ -272,9 +277,11 @@ run_stage1_both() {
 
 T_START=$(date +%s)
 echo "==================== setup ===================="
+rm -f "$WORK/logs/setup.status"
 if ! setup_env; then
-  echo "stage1 CI: environment setup FAILED"
-  exit 1
+  echo "stage1 CI: environment setup FAILED, no step run"
+  record setup 1 $(( $(date +%s) - T_START ))   # its log, logs/setup.log, says why
+  STEPS=()   # the summary below is still written
 fi
 both=0   # 1: data and mc both requested, run them at the same time (2: done)
 [[ " ${STEPS[*]} " == *" data "* && " ${STEPS[*]} " == *" mc "* ]] && both=1

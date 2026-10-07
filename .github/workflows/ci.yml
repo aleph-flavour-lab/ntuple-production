@@ -36,9 +36,10 @@ env:
   # pinned in .github/ci/key4hep_stack), and the image digest is part of the build-cache key
   IMAGE: ghcr.io/key4hep/key4hep-images/alma9:latest
   CI_THREADS: 4
-  # the checkout is mounted at /Package in the container; the comparison base is in ci_base/
+  # the checkout is mounted at /Package in the container; the comparison base is in ci_base/,
+  # run with GITHUB_ACTIONS empty: its errors are plain text, not error annotations of this run
   RUN: docker exec ci /Package/.github/ci/run_stage1_ci.sh -w /Package/ci_work
-  RUN_BASE: docker exec ci /Package/ci_base/.github/ci/run_stage1_ci.sh -w /Package/ci_work_base -i /Package/ci_work/input
+  RUN_BASE: docker exec -e GITHUB_ACTIONS= ci /Package/ci_base/.github/ci/run_stage1_ci.sh -w /Package/ci_work_base -i /Package/ci_work/input
 
 jobs:
   stage1-synthetic:
@@ -130,7 +131,10 @@ jobs:
         id: build-base
         if: steps.base.outputs.fccanalyses == 'different'
         continue-on-error: true
-        run: $RUN_BASE -j "$CI_THREADS" build
+        run: |
+          $RUN_BASE -j "$CI_THREADS" build && exit 0
+          echo "::warning title=build of the base::the FCCAnalyses of the comparison base could not be built, see the log of this step"
+          exit 1
 
       - name: Save the FCCAnalyses build of the base
         if: steps.base.outputs.fccanalyses == 'different' && steps.cache-base.outputs.cache-hit != 'true' && steps.build-base.outcome == 'success'
@@ -146,12 +150,13 @@ jobs:
         run: $RUN -j "$CI_THREADS" inputs
 
       # data and MC of this checkout in the foreground (this step fails if one of them fails),
-      # the base's in the background on the same input (a failure there is only a warning).
+      # the base's in the background on the same input (a failure there is only a warning;
+      # not run if the base's own FCCAnalyses could not be built).
       # The base's console output goes to a file in the workspace root (owned by the runner
       # user; ci_work*/ are created by the container, as root).
       - name: stage1 on synthetic data and MC (and on the base, at the same time)
         env:
-          HAS_BASE: ${{ steps.base.outputs.sha != '' }}
+          HAS_BASE: ${{ steps.base.outputs.sha != '' && steps.build-base.outcome != 'failure' }}
         run: |
           if [ "$HAS_BASE" = true ]; then
             $RUN_BASE -j "$CI_THREADS" data mc > ci_work_base.log 2>&1 &
@@ -182,7 +187,11 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           args=()
-          if [ -n "$BASE_SHORT" ]; then args=(--base-work ci_work_base --base-label "main ($BASE_SHORT)"); fi
+          if [ -n "$BASE_SHORT" ]; then
+            args=(--base-work ci_work_base --base-label "main ($BASE_SHORT)")
+          elif [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            args=(--no-base "the base could not be prepared (see the step 'Choose the comparison base')")
+          fi
           mkdir -p ci_summary
           rc=0
           # a crash of job_summary.py fails the job (after the lines below): a CI bug, worth seeing

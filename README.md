@@ -52,7 +52,7 @@ See [src/README.md](src/README.md) for how to run stage1 (on data or MC) and sta
 
 Every pull request to `main` runs stage1 (`--doData` and `--MCflavour 5`) with GitHub Actions on two small synthetic files (data-like and MC-like toy Z → qq̄ events with the collections of the converted ALEPH files, generated in the job), for the pull request and for `main`, and compares the two outputs event by event. Pushes to `main` and manual runs (Actions tab) run stage1 without the comparison.
 
-- The check **fails** if the pull request breaks the run (FCCAnalyses build, input generation, stage1, or an empty stage1 output) or if the comparison cannot be made. Output differences are **informational**; a failure on the `main` side only gives a warning.
+- The check **fails** if the pull request breaks the run (environment setup, FCCAnalyses build, input generation, stage1, or an empty stage1 output) or if the comparison cannot be made. Output differences are **informational**; a failure on the `main` side only gives a warning.
 - The job summary on the run page, also posted as a comment on the pull request, shows the status of each step (with the error lines of a failed one) and the branches added, removed and changed. Logs and outputs: artifact `stage1-ci-logs-and-outputs` of the run, kept 7 days.
 - The synthetic events exercise the code, not the physics: identical outputs do not prove identical outputs on real data, and code that the synthetic events do not reach is not tested.
 
