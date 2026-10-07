@@ -157,7 +157,7 @@ step_stage1() {
   root=$WORK/output/$(output_name "$mode")
   # stale results of an earlier run in the same WORKDIR must not pass the check (nor be
   # taken by job_summary.py as the reason of a failure)
-  rm -f "$root" "$WORK/output/branches_$mode.txt" "$WORK/output/check_$mode.txt"
+  rm -f "$root" "$root.failed_check" "$WORK/output/branches_$mode.txt" "$WORK/output/check_$mode.txt"
   if [[ ! -f $INPUT/beamspot.json ]]; then
     fail_early "$log" "stage1 $mode" "no synthetic input in $INPUT: run the inputs step first"
     return 1
@@ -184,13 +184,17 @@ step_stage1() {
     > "$WORK/output/check_$mode.txt" 2>&1
   rc=$?
   cat "$WORK/output/check_$mode.txt"
-  [[ $rc -eq 0 ]] || { annotate error "stage1 $mode" "output check failed"; return 1; }
+  [[ $rc -eq 0 ]] && return 0
+  annotate error "stage1 $mode" "output check failed"
+  # out of the comparison (an existing output counts as a good one there), kept in the artifact
+  [[ -f $root ]] && mv -f "$root" "$root.failed_check"
+  return 1
 }
 
 # Compares this run's outputs (WORK) with the reference run's (REF; in the CI: main).
 # POLICY (informational): differences are listed in compare_<mode>.txt/.json and in the job
 # summary; the step fails only when a comparison cannot be made although both outputs exist.
-# A missing output (stage1 failed there) gives "not compared", reported by its own step.
+# A missing output (stage1 or its check failed there) gives "not compared", reported by its own step.
 step_compare() {
   local mode out ref new rc nfail=0
   for mode in data mc; do
