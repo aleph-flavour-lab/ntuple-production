@@ -22,7 +22,7 @@ mkdir -p FCCAnalyses/.fccana
 echo /cvmfs/sw.hsf.org/key4hep/releases/2025-05-29/x86_64-almalinux9-gcc14.2.0-opt/key4hep-stack/2025-05-30-4x4qya/setup.sh > FCCAnalyses/.fccana/stack_pin
 ```
 
-Files written with the 2026-04-08 release (ROOT 6.38) are zstd-compressed and cannot be opened with the uproot of the 2025-05-29 release, so keep stage1 and the uproot-based scripts on the same release.
+Files written with the 2026-04-08 release (ROOT 6.38) are zstd-compressed and cannot be read with the uproot of the 2025-05-29 release, so keep stage1 and the uproot-based scripts on the same release.
 
 Set up the environment (sources the key4hep stack, configures the `FCCAnalyses` `PATH`/`PYTHONPATH`, and puts `src/` on `PYTHONPATH` for the shared modules such as `run_list`):
 
