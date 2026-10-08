@@ -1,0 +1,260 @@
+# Posts the job summary of the CI (ci.yml) on the pull request, as one comment per pull
+# request that each new CI run updates in place.
+#
+# A CI run for a pull request from a fork has a read-only token and cannot comment, so
+# the CI uploads its summary as an artifact (summary.md, pr_number, head_sha) and this
+# workflow, started by GitHub when the CI run has completed, posts it.
+# It runs the version of this file on the default branch, with a token that can write
+# comments. It never checks out or runs code of the pull request, and it treats the
+# artifact as untrusted: the pull request's code ran in the job that wrote it.
+#  - the pull request number in the artifact is only used if GitHub confirms that the pull
+#    request is open in this repository and that its head commit (and head repository) is
+#    the one the CI run tested;
+#  - the summary is posted as inert text: no HTML other than <details>/<summary>, no
+#    @mentions, no issue or commit references, no links or images, no math or diagrams,
+#    cut below GitHub's size limit;
+#  - nothing from the artifact is printed in the log or used in a workflow expression,
+#    and the archive is read in a step that does not have the token.
+name: CI comment
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+# runs for the same pull request (same head repository and branch, as given by GitHub in
+# the event) one after the other, so that two of them (re-runs, or two pushes that finish
+# close together) never both create a comment
+concurrency:
+  group: ci-comment-${{ github.event.workflow_run.head_repository.id }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  comment:
+    # a cancelled CI run (superseded by a newer push) leaves no summary
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      (github.event.workflow_run.conclusion == 'success' ||
+       github.event.workflow_run.conclusion == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read          # list and download the artifacts of the CI run
+      pull-requests: write   # read the pull request, write the comment
+    # names and size limits (in bytes), for the steps below
+    env:
+      ARTIFACT: stage1-ci-summary   # the artifact of the CI run, written by ci.yml
+      SUMMARY_DIR: summary          # folder in RUNNER_TEMP for the files read out of the artifact
+      MAX_ZIP_BYTES: 1048576        # the artifact (a zip archive), as listed and as downloaded
+      MAX_SUMMARY_BYTES: 262144     # summary.md
+      MAX_PR_NUMBER_BYTES: 32       # pr_number
+      MAX_HEAD_SHA_BYTES: 128       # head_sha
+    steps:
+      - name: Download the summary of the CI run
+        id: download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          [[ $RUN_ID =~ ^[0-9]+$ ]] || { echo "::error::unexpected run id"; exit 1; }
+          zip=$RUNNER_TEMP/$ARTIFACT.zip
+          api=$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions
+          auth="Authorization: Bearer $GH_TOKEN"
+          # id and size of the artifact as listed by GitHub (the newest, if re-runs made several)
+          curl -sSf --max-time 60 -H "$auth" -H "Accept: application/vnd.github+json" \
+            -o "$RUNNER_TEMP/artifacts.json" "$api/runs/$RUN_ID/artifacts?name=$ARTIFACT&per_page=100"
+          read -r id size < <(jq -r '[.artifacts[] | select(.name == env.ARTIFACT and (.expired | not))]
+            | max_by(.id) // empty | "\(.id) \(.size_in_bytes)"' "$RUNNER_TEMP/artifacts.json") || true
+          if [[ ! ${id:-} =~ ^[0-9]+$ ]]; then
+            echo "No summary artifact in the CI run: nothing to post."; exit 0
+          fi
+          if [[ ! ${size:-} =~ ^[0-9]+$ ]] || (( size > MAX_ZIP_BYTES )); then
+            echo "::warning::The summary artifact is larger than $MAX_ZIP_BYTES bytes: not posted."; exit 0
+          fi
+          # GitHub answers with a redirect to a pre-signed address, fetched without the token
+          url=$(curl -sS --max-time 60 -H "$auth" -o /dev/null -w '%{redirect_url}' "$api/artifacts/$id/zip")
+          if [[ $url != https://* ]]; then
+            echo "::warning::No download address for the summary artifact: not posted."; exit 0
+          fi
+          curl -sSf --max-time 120 --max-filesize "$MAX_ZIP_BYTES" -o "$zip" "$url"
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      # The archive is never unpacked as such: only the three expected files are read out
+      # of it, each cut to a maximum size, into files whose names are fixed here. A step of
+      # its own, so that the program that parses the archive (untrusted) does not have the
+      # token in its environment, nor does its parent shell.
+      - name: Read the summary out of the archive
+        if: steps.download.outputs.found == 'true'
+        run: |
+          out=$RUNNER_TEMP/$SUMMARY_DIR
+          zip=$RUNNER_TEMP/$ARTIFACT.zip
+          mkdir "$out"
+          for f in "summary.md:$MAX_SUMMARY_BYTES" "pr_number:$MAX_PR_NUMBER_BYTES" "head_sha:$MAX_HEAD_SHA_BYTES"; do
+            unzip -p "$zip" "${f%%:*}" 2> /dev/null < /dev/null | head -c "${f##*:}" > "$out/${f%%:*}" || true
+          done
+
+      - name: Post or update the comment on the pull request
+        if: steps.download.outputs.found == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          # no logging of the requests (it would print the comment, i.e. the untrusted text,
+          # where the runner could take parts of it for workflow commands), even if the
+          # workflow is run with debug logging
+          debug: false
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const MARKER = '<!-- stage1-ci-summary -->';  // first line of the comment
+            const BOT = 'github-actions[bot]';             // author of the comment
+            const MAX_COMMENT = 60000;   // GitHub refuses comments longer than 65536 characters,
+            const MAX_BYTES = 60000;     // the same in UTF-8 bytes, in case it counts bytes
+            const ZWSP = '\u200B';       // zero-width space: breaks mentions, references, links
+            const dir = path.join(process.env.RUNNER_TEMP, process.env.SUMMARY_DIR);
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+
+            // at most `max` bytes of a file read out of the artifact ('' if missing)
+            function read(name, max) {
+              let fd;
+              try {
+                fd = fs.openSync(path.join(dir, name), 'r');
+              } catch (e) {
+                return '';
+              }
+              try {
+                if (!fs.fstatSync(fd).isFile()) return '';
+                const buf = Buffer.alloc(max);
+                return buf.subarray(0, fs.readSync(fd, buf, 0, max, 0)).toString('utf8');
+              } finally {
+                fs.closeSync(fd);
+              }
+            }
+
+            // The summary as inert markdown. '&' and '<' are escaped, so that no HTML tag or
+            // entity can start ('>' alone is plain text, as in 'phi->KK'), then the exact
+            // tags that .github/ci/job_summary.py writes are let through again. A zero-width
+            // space after '@', after '#', '/' or 'GH-' before a digit, and after '://', 'www'
+            // and ']' stops mentions (@user, @org/team), issue references (#1, owner/repo#1,
+            // GH-1, github.com/owner/repo/issues/1), autolinks, markdown links and images;
+            // one every 6 characters in hex words of 7 to 40 characters with a letter stops
+            // commit references (abc1234, owner/repo@abc1234); one between '#' and '[' stops
+            // '##[...' being read as a workflow command if the text ever reached the log.
+            // Each '$' is put in <span> tags (after a zero-width space if it follows a '\',
+            // which would make the tag text), the way GitHub documents to show a dollar sign
+            // that does not start or end math, and code blocks marked as math, mermaid,
+            // geojson, topojson or stl are made plain text, so that nothing is rendered.
+            // Invisible characters already in the text are removed first, so that they cannot
+            // be used to hide anything.
+            function sanitize(text) {
+              return text
+                .replace(/\r\n?/g, '\n')
+                .replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F]|\p{Cf}/gu, '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/&lt;(details|details open|\/details|summary|\/summary)>/g, '<$1>')
+                .replace(/\\?\$/g, (m) => (m.length > 1 ? '\\' + ZWSP : '') + '<span>$</span>')
+                .replace(/@/g, '@' + ZWSP)
+                .replace(/([#/])(?=[0-9])/g, '$1' + ZWSP)
+                .replace(/#(?=\[)/g, '#' + ZWSP)
+                .replace(/\b(gh)-(?=[0-9])/gi, '$1-' + ZWSP)
+                .replace(/:\/\//g, ':' + ZWSP + '//')
+                .replace(/(www)\./gi, '$1' + ZWSP + '.')
+                .replace(/\](?=[(:[])/g, ']' + ZWSP)
+                .replace(/[0-9a-f]+/gi, (h) => (h.length >= 7 && h.length <= 40 && /[a-f]/i.test(h)
+                  ? h.replace(/.{6}(?=.)/g, '$&' + ZWSP) : h))
+                .replace(/(`{3,}|~{3,})([ \t]*)(math|mermaid|geojson|topojson|stl)\b/gi, '$1$2text');
+            }
+
+            // at most `max` characters and `maxBytes` bytes (UTF-8), cut at the end of a line
+            // and never inside a tag, an entity or a character
+            function truncate(s, max, maxBytes) {
+              if (s.length <= max && Buffer.byteLength(s) <= maxBytes) return s;
+              const buf = Buffer.from(s.slice(0, max).replace(/[\uD800-\uDBFF]$/, ''));
+              let end = Math.min(buf.length, maxBytes);
+              while (end > 0 && (buf[end] & 0xC0) === 0x80) end--;
+              let t = buf.subarray(0, end).toString('utf8');
+              const nl = t.lastIndexOf('\n');
+              if (nl > t.length / 2) t = t.slice(0, nl);
+              const lt = t.lastIndexOf('<');
+              if (lt > t.lastIndexOf('>')) t = t.slice(0, lt);
+              return t.replace(/&[a-z]*$/, '');
+            }
+
+            async function main() {
+              const sha = run.head_sha;
+              if (run.event !== 'pull_request') return core.info('not a pull request run');
+              if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha)) throw new Error('unexpected head_sha');
+
+              // the pull request number in the artifact is a hint, accepted only if GitHub
+              // shows an open pull request of this repository whose head is the tested commit
+              const hint = read('pr_number', Number(process.env.MAX_PR_NUMBER_BYTES)).trim();
+              if (!/^[1-9][0-9]{0,9}$/.test(hint)) {
+                return core.warning('pr_number in the artifact is not a pull request number: not posted');
+              }
+              if (read('head_sha', Number(process.env.MAX_HEAD_SHA_BYTES)).trim() !== sha) {
+                return core.warning('head_sha in the artifact is not the commit of the CI run: not posted');
+              }
+              let pr;
+              try {
+                pr = (await github.rest.pulls.get({ owner, repo, pull_number: Number(hint) })).data;
+              } catch (e) {
+                if (e.status === 404) return core.warning(`no pull request ${hint} in this repository: not posted`);
+                throw e;
+              }
+              const problems = [];
+              if (pr.state !== 'open') problems.push('it is not open');
+              if (!pr.base.repo || pr.base.repo.id !== context.payload.repository.id) {
+                problems.push('its base is not this repository');
+              }
+              if (pr.head.sha !== sha) {
+                problems.push(`its head is ${pr.head.sha}, not the tested ${sha} (a newer push, or a forged number)`);
+              }
+              if (!pr.head.repo || !run.head_repository || pr.head.repo.id !== run.head_repository.id) {
+                problems.push('its head repository is not the one of the CI run');
+              }
+              if (problems.length) {
+                return core.warning(`pull request ${pr.number}: ${problems.join('; ')}: not posted`);
+              }
+
+              const summary = sanitize(read('summary.md', Number(process.env.MAX_SUMMARY_BYTES))).trim();
+              if (!summary) return core.warning('empty summary: not posted');
+              const runUrl = `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}/actions/runs/${run.id}`;
+              const result = run.conclusion === 'success' ? 'passed' : 'failed';
+              const header = (cut) => [
+                MARKER,
+                `**CI on synthetic input** for ${sha.slice(0, 7)}: ${result}, as reported by this pull ` +
+                  `request's own CI workflow. [Run page](${runUrl}) (logs, outputs). Updated by every CI ` +
+                  "run; the text below is written by this pull request's version of the CI scripts." +
+                  (cut ? ' It is cut here at the size limit of comments: the full summary is on the run page.' : ''),
+                '',
+                '',
+              ].join('\n');
+              const text = truncate(summary, MAX_COMMENT - header(true).length,
+                MAX_BYTES - Buffer.byteLength(header(true)));
+              const body = header(text.length < summary.length) + text;
+
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: pr.number, per_page: 100,
+              });
+              const mine = comments.find((c) => c.user && c.user.login === BOT && c.user.type === 'Bot' &&
+                typeof c.body === 'string' && c.body.startsWith(MARKER));
+              if (mine) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+                core.info(`updated comment ${mine.id} on pull request ${pr.number}`);
+              } else {
+                const { data } = await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+                core.info(`created comment ${data.id} on pull request ${pr.number}`);
+              }
+            }
+
+            // Errors end here, with a short message: github-script would print the whole error,
+            // which for a failed request contains the request, i.e. the comment (untrusted).
+            try {
+              await main();
+            } catch (e) {
+              const status = e && Number.isInteger(e.status) ? `HTTP ${e.status}: ` : '';
+              const message = String((e && e.message) || e).slice(0, 300).replace(/[^ -~]/g, ' ');
+              core.setFailed(`not posted: ${status}${message}`);
+            }

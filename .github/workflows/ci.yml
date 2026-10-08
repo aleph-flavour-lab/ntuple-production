@@ -1,0 +1,227 @@
+# stage1 on synthetic input. The ALEPH files are not public and GitHub machines cannot
+# read EOS, so .github/ci/make_synthetic_input.py writes a small data-like and MC-like
+# EDM4hep file (toy Z -> q qbar events, same collections as the converted ALEPH files).
+#
+#  - pull request to main: stage1 runs on the same synthetic files for the pull request
+#    and for main, and the outputs are compared event by event. The job summary lists the
+#    branches added, removed and changed. INFORMATIONAL: the job fails only if stage1
+#    fails on the pull request, or if the comparison itself cannot be made.
+#  - push to main, or by hand (Actions tab, "Run workflow"): stage1 on the synthetic
+#    files, no comparison.
+#
+# The work is done by .github/ci/run_stage1_ci.sh, which can be run by hand the same way
+# (see its header). A GitHub runner has 4 cores: the four stage1 runs (data and MC, pull
+# request and main) run at the same time, since stage1 spends most of its time compiling
+# the analysis on a single core.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read   # the workflow only reads the repository
+
+# a new push to a pull request cancels the run still going for the previous push (the same
+# for runs by hand on one branch); every push to main keeps its own run
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+env:
+  # floats on purpose: only the OS layer comes from the image (the stack comes from /cvmfs,
+  # pinned in .github/ci/key4hep_stack), and the image digest is part of the build-cache key
+  IMAGE: ghcr.io/key4hep/key4hep-images/alma9:latest
+  CI_THREADS: 4
+  # the checkout is mounted at /Package in the container; the comparison base is in ci_base/,
+  # run with GITHUB_ACTIONS empty: its errors are plain text, not error annotations of this run
+  RUN: docker exec ci /Package/.github/ci/run_stage1_ci.sh -w /Package/ci_work
+  RUN_BASE: docker exec -e GITHUB_ACTIONS= ci /Package/ci_base/.github/ci/run_stage1_ci.sh -w /Package/ci_work_base -i /Package/ci_work/input
+
+jobs:
+  stage1-synthetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # for a pull request, GitHub checks out a test merge of the pull request into main
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          fetch-depth: 2              # the test merge and its parents (main is the first parent)
+          persist-credentials: false  # no GitHub token left on disk
+
+      # the base is what the outputs are compared with: for a pull request, exactly the main
+      # the pull request was merged into; none otherwise.
+      # prepare_base.sh puts the base's code, with this checkout's CI scripts, in ci_base/.
+      - name: Choose the comparison base
+        id: base
+        continue-on-error: true   # a base that cannot be prepared only means no comparison
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo "no comparison"; exit 0
+          fi
+          .github/ci/prepare_base.sh "$(git rev-parse HEAD^1)" ci_base
+
+      - uses: cvmfs-contrib/github-action-cvmfs@72f2a8d366043978d6aebee154bc9ed321c2f2a8 # v5.6
+
+      # the FCCAnalyses build is cached, keyed on the FCCAnalyses commit, the Key4hep stack
+      # (.github/ci/key4hep_stack) and the container image
+      - name: Pull the Key4hep image, compute the build-cache keys
+        id: key
+        env:
+          BASE_FCCANALYSES: ${{ steps.base.outputs.fccanalyses_sha }}
+        run: |
+          docker pull -q "$IMAGE"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE" | sed 's/.*sha256://' | cut -c1-12)
+          stack=$(sha256sum .github/ci/key4hep_stack | cut -c1-12)
+          fccanalyses=$(git rev-parse HEAD:FCCAnalyses | cut -c1-12)
+          echo "head=fccanalyses-$fccanalyses-stack-$stack-image-$digest" >> "$GITHUB_OUTPUT"
+          echo "base=fccanalyses-base-${BASE_FCCANALYSES:0:12}-stack-$stack-image-$digest" >> "$GITHUB_OUTPUT"
+
+      # only the install tree is cached: stage1 does not need FCCAnalyses/build
+      - name: Restore the FCCAnalyses build
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            FCCAnalyses/install
+            FCCAnalyses/.fccana/stack_build
+          key: ${{ steps.key.outputs.head }}
+
+      # only when the base pins another FCCAnalyses commit (otherwise both use the same build)
+      - name: Restore the FCCAnalyses build of the base
+        id: cache-base
+        if: steps.base.outputs.fccanalyses == 'different'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ci_base/FCCAnalyses/install
+            ci_base/FCCAnalyses/.fccana/stack_build
+          key: ${{ steps.key.outputs.base }}
+
+      # the checkout is mounted at the same path in every run, so a restored build finds itself.
+      # git runs as root in the container, on a checkout owned by the runner's user: it reads
+      # the repository only if it is declared safe (for the commit hashes in the logs; with
+      # GITHUB_EVENT_NAME and GITHUB_SHA, run_stage1_ci.sh names the test merge of a pull request)
+      - name: Start the container
+        run: >
+          docker run -d --name ci -v "$GITHUB_WORKSPACE":/Package -v /cvmfs:/cvmfs:shared
+          -e GITHUB_ACTIONS -e GITHUB_EVENT_NAME -e GITHUB_SHA
+          -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*'
+          "$IMAGE" sleep infinity
+
+      - name: Build FCCAnalyses (skipped on a cache hit)
+        run: $RUN -j "$CI_THREADS" build
+
+      # saved right after the build, so that a failing stage1 does not lose it
+      - name: Save the FCCAnalyses build
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            FCCAnalyses/install
+            FCCAnalyses/.fccana/stack_build
+          key: ${{ steps.key.outputs.head }}
+
+      # a base that cannot be built only means no comparison: it does not fail the job
+      - name: Build the FCCAnalyses of the base (skipped on a cache hit)
+        id: build-base
+        if: steps.base.outputs.fccanalyses == 'different'
+        continue-on-error: true
+        run: |
+          $RUN_BASE -j "$CI_THREADS" build && exit 0
+          echo "::warning title=build of the base::the FCCAnalyses of the comparison base could not be built, see the log of this step"
+          exit 1
+
+      - name: Save the FCCAnalyses build of the base
+        if: steps.base.outputs.fccanalyses == 'different' && steps.cache-base.outputs.cache-hit != 'true' && steps.build-base.outcome == 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ci_base/FCCAnalyses/install
+            ci_base/FCCAnalyses/.fccana/stack_build
+          key: ${{ steps.key.outputs.base }}
+
+      - name: Generate the synthetic input
+        id: inputs
+        run: $RUN -j "$CI_THREADS" inputs
+
+      # data and MC of this checkout in the foreground (this step fails if one of them fails),
+      # the base's in the background on the same input (a failure there is only a warning;
+      # not run if the base's own FCCAnalyses could not be built).
+      # The base's console output goes to a file in the workspace root (owned by the runner
+      # user; ci_work*/ are created by the container, as root).
+      - name: stage1 on synthetic data and MC (and on the base, at the same time)
+        env:
+          HAS_BASE: ${{ steps.base.outputs.sha != '' && steps.build-base.outcome != 'failure' }}
+        run: |
+          if [ "$HAS_BASE" = true ]; then
+            $RUN_BASE -j "$CI_THREADS" data mc > ci_work_base.log 2>&1 &
+            base_pid=$!
+          fi
+          rc=0
+          $RUN -j "$CI_THREADS" data mc || rc=$?
+          if [ "$HAS_BASE" = true ]; then
+            wait "$base_pid" || echo "::warning title=stage1 on the base::stage1 failed on the comparison base, see its log below"
+            echo "::group::stage1 on the comparison base"
+            cat ci_work_base.log
+            echo "::endgroup::"
+          fi
+          exit "$rc"
+
+      # exact comparison; add -R RTOL and/or -A ATOL to $RUN for tolerances
+      - name: Compare the outputs with the base
+        if: ${{ !cancelled() && steps.base.outputs.sha != '' && steps.inputs.outcome == 'success' }}
+        run: $RUN -j "$CI_THREADS" -r /Package/ci_work_base compare
+
+      # for a pull request, the summary is also posted on the pull request, by ci_comment.yml
+      # from the files in ci_summary/
+      - name: Job summary
+        if: ${{ !cancelled() }}
+        env:
+          BASE_SHORT: ${{ steps.base.outputs.short }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          args=()
+          if [ -n "$BASE_SHORT" ]; then
+            args=(--base-work ci_work_base --base-label "main ($BASE_SHORT)")
+          elif [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            args=(--no-base "the base could not be prepared (see the step 'Choose the comparison base')")
+          fi
+          mkdir -p ci_summary
+          rc=0
+          # a crash of job_summary.py fails the job (after the lines below): a CI bug, worth seeing
+          python3 .github/ci/job_summary.py ci_work "${args[@]}" > ci_summary/summary.md || rc=$?
+          cat ci_summary/summary.md >> "$GITHUB_STEP_SUMMARY"
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            echo "$PR_NUMBER" > ci_summary/pr_number
+            echo "$PR_HEAD_SHA" > ci_summary/head_sha
+          fi
+          exit "$rc"
+
+      # read by ci_comment.yml (public, like all artifacts of this repository: synthetic results only)
+      - name: Upload the summary for the pull request comment
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage1-ci-summary
+          path: ci_summary/
+          retention-days: 7
+
+      # synthetic outputs only (public, no ALEPH content)
+      - name: Upload logs and outputs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage1-ci-logs-and-outputs
+          path: |
+            ci_work/logs
+            ci_work/output
+            ci_work_base/logs
+            ci_work_base/output
+            ci_work_base.log
+          retention-days: 7

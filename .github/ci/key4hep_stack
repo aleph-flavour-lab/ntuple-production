@@ -1,0 +1,5 @@
+# Key4hep stack of the stage1 CI: the setup script on /cvmfs, on the first non-comment line.
+# The CI builds FCCAnalyses and runs stage1 with this stack, and keys its build cache on this file.
+# This is the CI's stack: a fresh clone's `source setup.sh` may take a different (the latest)
+# release, because FCCAnalyses/.fccana/stack_pin is not tracked (see README).
+/cvmfs/sw.hsf.org/key4hep/releases/2025-05-29/x86_64-almalinux9-gcc14.2.0-opt/key4hep-stack/2025-05-30-4x4qya/setup.sh
