@@ -15,7 +15,16 @@ cd ntuple-production
 git submodule update --init --recursive
 ```
 
-Set up the environment (sources the pinned key4hep stack recorded in `FCCAnalyses/.fccana/stack_pin`, configures the `FCCAnalyses` `PATH`/`PYTHONPATH`, and puts `src/` on `PYTHONPATH` for the shared modules such as `run_list`):
+The key4hep stack is taken from `FCCAnalyses/.fccana/stack_pin` if that file exists, unless a key4hep stack is already set up in the shell. The file is not part of the repository, so on a fresh clone `setup.sh` sources the latest key4hep release. To use the 2025-05-29 release, create the pin once after cloning:
+
+```bash
+mkdir -p FCCAnalyses/.fccana
+echo /cvmfs/sw.hsf.org/key4hep/releases/2025-05-29/x86_64-almalinux9-gcc14.2.0-opt/key4hep-stack/2025-05-30-4x4qya/setup.sh > FCCAnalyses/.fccana/stack_pin
+```
+
+Files written with the 2026-04-08 release (ROOT 6.38) are zstd-compressed and cannot be read with the uproot of the 2025-05-29 release, so keep stage1 and the uproot-based scripts on the same release.
+
+Set up the environment (sources the key4hep stack, configures the `FCCAnalyses` `PATH`/`PYTHONPATH`, and puts `src/` on `PYTHONPATH` for the shared modules such as `run_list`):
 
 ```bash
 source setup.sh
@@ -29,7 +38,7 @@ fccanalysis build -j 8
 cd ..
 ```
 
-> To update the pinned stack, edit `FCCAnalyses/.fccana/stack_pin`. `FCCAnalyses/setup.sh` also accepts `-l/--latest`, `-n/--nightlies`, or `-b/--from-build` if you need a different stack than the pinned one (see `source FCCAnalyses/setup.sh --help`).
+> To use another stack, write the path of its `setup.sh` to `FCCAnalyses/.fccana/stack_pin`. `FCCAnalyses/setup.sh` also accepts `-l/--latest`, `-n/--nightlies`, or `-b/--from-build` if you need a different stack than the pinned one (see `source FCCAnalyses/setup.sh --help`). After changing the stack (including creating the pin in a checkout that was already built), open a new shell, `source setup.sh` and rebuild with `fccanalysis build --clean-build -j 8`: a plain `fccanalysis build` keeps the CMake configuration of the previous stack.
 
 Every new shell session, just re-run `source setup.sh` from the repo root before working with `fccanalysis` or the plotting scripts.
 
