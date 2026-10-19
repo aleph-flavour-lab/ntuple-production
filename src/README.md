@@ -116,7 +116,7 @@ Per candidate, in the order of `v0n_pdg`:
 | `v0n_cov_{xx,yx,yy,zx,zy,zz}` | vertex-fit position covariance, packed lower triangle | cm² | — |
 | `v0n_trk{1,2}_origIdx` | index of the daughter in the `Tracks` collection | — | −1 |
 | `v0n_trk{1,2}_dEdx_{pads,wires}_{value,error}` | daughter dE/dx measurement after the validity gate | as `pfcand_dEdx_*` | −1 |
-| `v0n_trk{1,2}_isChargedHad` | tri-state particle-flow label of the daughter (see below) | — | −1 (no linked reconstructed particle) |
+| `v0n_trk{1,2}_isChargedHad` | tri-state particle-flow label of the daughter (see below) | — | −1 (no linked reconstructed particle of type 0 to 5) |
 
 The two daughter legs `v0n_trk1_*` / `v0n_trk2_*` are in momentum order, `v0n_trk1_*` the higher-momentum daughter at the fitted vertex, *not* in charge order. The Λ hypothesis gives the proton mass to the higher-momentum daughter, so the proton of a Λ candidate is always `v0n_trk1`.
 
@@ -159,7 +159,7 @@ Under `--oldPV`, `v0n_Lxy`, `v0n_LxySig`, `v0n_LxyzSig` and `v0n_dxyz` are −1 
 
 ### Index map and per-leg labels
 
-Internally, `sec2origIdx` maps the secondary track collection back to the original `Tracks` index space, which is the frame the `v0n_trk{1,2}_origIdx` branches use; the matching is truth-free, so it runs on data too. The map itself is not an output branch. Every candidate leg additionally carries `<leg>_isChargedHad`, a tri-state particle-flow label: 1 = the leg's linked reconstructed particle is a PF charged hadron, 0 = it is an electron, muon or another type, −1 = the track has no linked reconstructed particle (mostly very soft tracks, below the PF momentum reach). The label uses the same particle-flow type codes as `pfcand_isChargedHad`. On V0 daughters a 0 mostly (about 95 %) means `ParticleID.type` 3, a track the ALEPH energy-flow reconstruction itself attributed to a V0, not an electron or a muon: requiring `isChargedHad == 1` drops about a quarter of the tight-Kₛ legs.
+Internally, `sec2origIdx` maps the secondary track collection back to the original `Tracks` index space, which is the frame the `v0n_trk{1,2}_origIdx` branches use; the matching is truth-free, so it runs on data too. The map itself is not an output branch. Every candidate leg additionally carries `<leg>_isChargedHad`, a tri-state particle-flow label: 1 = the leg's linked reconstructed particle is a PF charged hadron, 0 = it is an electron, muon or another type, −1 = the track has no linked reconstructed particle of type 0 to 5 (mostly very soft tracks, below the PF momentum reach). The label uses the same particle-flow type codes as `pfcand_isChargedHad`. On V0 daughters a 0 mostly (about 95 %) means `ParticleID.type` 3, a track the ALEPH energy-flow reconstruction itself attributed to a V0, not an electron or a muon: requiring `isChargedHad == 1` drops about a quarter of the tight-Kₛ legs.
 
 ### The primary-vertex fit
 
@@ -327,7 +327,7 @@ Per leg, for the φ legs `phikk_trk{1,2}_*` (`trk1` the higher-momentum one) and
 | `_isprim` | 1 = in the fitted primary-vertex set | — | — |
 | `_pool` (D* only) | 0 = primary set, 1 = secondary set; the value 2 ("neither") does not occur, since every baseline track is in one of the two | — | — |
 | `_dEdx_{pads,wires}_{value,error}` | dE/dx measurement after the validity gate | as `pfcand_dEdx_*` | −1 (missing or failed, as on the `v0n` legs) |
-| `_isChargedHad` | tri-state particle-flow label (see above) | — | −1 (no linked reconstructed particle) |
+| `_isChargedHad` | tri-state particle-flow label (see above) | — | −1 (no linked reconstructed particle of type 0 to 5) |
 
 ### Track membership and joins
 
@@ -339,12 +339,16 @@ Per leg, for the φ legs `phikk_trk{1,2}_*` (`trk1` the higher-momentum one) and
 
 ### Analysis particles and jets
 
-The *analysis particles* are the particle-flow candidates (`RecoParticles`) without the energy-flow photons and neutral hadrons (`ParticleID.type` 4 and 5, `AlephSelection::kPFPhoton` and `kPFNeutralHad`) with an energy below 1 GeV (`AlephSelection::kNeutralMinE`, all in `analyzer.h`). These soft neutral candidates are left out because their rates in data and simulation disagree. The two jets are formed by exclusive Durham (ee_kt) clustering, E-scheme, of the analysis particles, so the jet branches (`jet_*`, `JetClustering_d23/d34`, `event_invariant_mass`) and the jet constituents (`pfcand_*`) contain no soft neutral candidate. `EVT_Evis` and the event thrust (`EVT_Thrust_*`) are computed from the same list. The track-based reconstruction (track selection, primary vertex, secondary vertices, V0s, φ and D* candidates) is built from tracks, not from the analysis particles; it follows them only where it refers to the jets or to the thrust axis: the jet assignment and the jet-relative variables of the `sv_*`, `v0_*` and `v0n_*` blocks and, in rare events, the `svn` vertices, whose growth stays within a thrust hemisphere.
+The *analysis particles* are the particle-flow candidates (`RecoParticles`) of energy-flow type (`ParticleID.type`) 0 to 5 (charged hadron, electron, muon, V0 track, photon, neutral hadron; `AlephSelection::kPFMaxAnalysisType`) without the photons and neutral hadrons (types 4 and 5, `AlephSelection::kPFPhoton` and `kPFNeutralHad`) with an energy below 1 GeV (`AlephSelection::kNeutralMinE`, all in `analyzer.h`). Left out are the HCAL, LCAL and SiCAL objects (types 6, 7, 8; type 6 does not occur in the converted files), since the luminosity-calorimeter objects are poorly simulated and noisy in some data runs, and the soft neutral candidates, whose rates in data and simulation disagree.
+
+stage1 builds them as filtered copies of `RecoParticles` (`AlephSelection::filterParticles`; the input collections are not modified): `RecoParticlesNoLumiCal` (types 0 to 5) and, from it, `AnalysisParticles` (without the soft neutral candidates). Each comes with an index-parallel `ParticleID` copy (`ParticleIDNoLumiCal`, `AnalysisParticleID`) and its own particle→track relation. The jets and the `pfcand_*` block read `AnalysisParticles`, `<leg>_isChargedHad` reads `RecoParticlesNoLumiCal`.
+
+The two jets are formed by exclusive Durham (ee_kt) clustering, E-scheme, of the analysis particles, so the jet branches (`jet_*`, `JetClustering_d23/d34`, `event_invariant_mass`) and the jet constituents (`pfcand_*`) contain none of the left-out candidates. `EVT_Evis` and the event thrust (`EVT_Thrust_*`) are computed from the same list. The track-based reconstruction (track selection, primary vertex, secondary vertices, V0s, φ and D* candidates) is built from tracks, not from the analysis particles; it follows them only where it refers to the jets or to the thrust axis: the jet assignment and the jet-relative variables of the `sv_*`, `v0_*` and `v0n_*` blocks and, in rare events, the `svn` vertices, whose growth stays within a thrust hemisphere.
 
 Compared with ntuples produced without this selection:
 
-- `EVT_Evis` no longer contains the soft neutral candidates, so the missing energy √s − `EVT_Evis` includes them.
-- The thrust axis is oriented towards the hemisphere with the lower energy of analysis particles. Since the soft neutral candidates no longer count in this comparison, the axis points the other way in a fraction of the events (about 10 % in 1994 data and simulation with the 1 GeV threshold): there the signed axis `EVT_Thrust_X/Y/Z` and the sign of `EVT_Thrust_cosTheta` differ. T, |cos θ| and the split of the particles into the two hemispheres do not depend on the orientation; they change only through the different list of particles.
+- `EVT_Evis` no longer contains the left-out candidates, so the missing energy √s − `EVT_Evis` includes them.
+- The thrust axis is oriented towards the hemisphere with the lower energy of analysis particles. Since the left-out candidates no longer count in this comparison, the axis points the other way in a fraction of the events (about 11 % in 1994 data and 10 % in simulation): there the signed axis `EVT_Thrust_X/Y/Z` and the sign of `EVT_Thrust_cosTheta` differ. T, |cos θ| and the split of the particles into the two hemispheres do not depend on the orientation; they change only through the different list of particles.
 
 ### Event-level energy
 

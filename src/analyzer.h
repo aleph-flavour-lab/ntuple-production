@@ -546,37 +546,118 @@ constexpr int kPFNeutralHad = 5;
 // analysis particles (jets, visible energy, thrust) [GeV].
 constexpr double kNeutralMinE = 1.;
 
-// RecoParticles indices of the analysis particles: every particle except the
-// photons and neutral hadrons with energy below eMin.
-// ParticleID is index-parallel to RecoParticles.
-inline rv::RVec<int> analysisParticleIndices(const rv::RVec<edm4hep::ParticleIDData> &pid,
-                                             const rv::RVec<float> &energy, double eMin) {
-  if (pid.size() != energy.size())
-    throw std::runtime_error("analysisParticleIndices: ParticleID and RecoParticles differ in size");
-  rv::RVec<int> idx;
-  idx.reserve(energy.size());
-  for (size_t i = 0; i < energy.size(); ++i) {
-    const bool softNeutral = (pid[i].type == kPFPhoton || pid[i].type == kPFNeutralHad) && energy[i] < eMin;
-    if (!softNeutral) idx.push_back(static_cast<int>(i));
-  }
-  return idx;
-}
+// Highest energy-flow type kept (0 charged hadron, 1 electron, 2 muon, 3 V0 track,
+// 4 photon, 5 neutral hadron); 6 (HCAL object, absent from the files), 7 (LCAL) and
+// 8 (SiCAL) are left out: the luminosity-calorimeter objects are poorly simulated and
+// noisy in some data runs.
+constexpr int kPFMaxAnalysisType = 5;
 
-// Jet constituents as RecoParticles indices: the clustering numbers its input
-// list, which is RecoParticles restricted to inputIdx.
-inline std::vector<std::vector<int>>
-constituentsToRecoIndices(const std::vector<std::vector<int>> &constituents,
-                          const rv::RVec<int> &inputIdx) {
-  std::vector<std::vector<int>> out;
-  out.reserve(constituents.size());
-  for (const auto &jet : constituents) {
-    std::vector<int> j;
-    j.reserve(jet.size());
-    for (int k : jet) j.push_back(inputIdx.at(k));
-    out.push_back(std::move(j));
+// Filtered copy of a particle collection: the kept particles in their source order, with
+// the relations stage1 reads rebuilt for the new indices. The source is not modified.
+struct ParticleSubset {
+  // particles[i].tracks_begin/end index `tracks`; cluster and daughter ranges are emptied (not carried over)
+  rv::RVec<edm4hep::ReconstructedParticleData> particles;
+  rv::RVec<int> tracks;                   // particle -> track relation: Tracks indices
+  rv::RVec<edm4hep::ParticleIDData> pid;  // pid[i] is the ParticleID of particles[i] (parameters range empty)
+  rv::RVec<int> sourceIdx;                // new -> old: source index of every kept particle
+  rv::RVec<int> recoIdx;                  // RecoParticles index of every kept particle
+};
+
+namespace detail {
+template <typename Keep>
+ParticleSubset filterParticles(const rv::RVec<edm4hep::ReconstructedParticleData> &particles,
+                               const rv::RVec<int> &tracks,
+                               const rv::RVec<edm4hep::ParticleIDData> &pid,
+                               const rv::RVec<int> &pidParticle,
+                               const rv::RVec<int> &recoIdx, const Keep &keep) {
+  const int n = static_cast<int>(particles.size());
+  if (pid.size() != pidParticle.size())
+    throw std::runtime_error("filterParticles: ParticleID and its particle relation differ in size");
+  // ParticleID entry of every particle, through the ParticleID -> particle relation;
+  // an entry whose relation is unset (negative index) belongs to no particle and is skipped
+  rv::RVec<int> pidOf(n, -1);
+  for (size_t k = 0; k < pidParticle.size(); ++k) {
+    const int i = pidParticle[k];
+    if (i < 0) continue;
+    if (i >= n)
+      throw std::runtime_error("filterParticles: ParticleID -> particle relation entry out of range");
+    if (pidOf[i] >= 0)
+      throw std::runtime_error("filterParticles: two ParticleID entries for one particle");
+    pidOf[i] = static_cast<int>(k);
+  }
+  // a particle without ParticleID (no energy-flow type) is corrupt input: fail loudly
+  ParticleSubset out;
+  for (int i = 0; i < n; ++i) {
+    if (pidOf[i] < 0)
+      throw std::runtime_error("filterParticles: particle without ParticleID");
+    if (keep(particles[i], pid[pidOf[i]])) {
+      out.sourceIdx.push_back(i);
+    }
+  }
+  // kept particles, each with its ParticleID and its own range of the re-packed track relation
+  for (int i : out.sourceIdx) {
+    edm4hep::ReconstructedParticleData p = particles[i];
+    const unsigned int begin = out.tracks.size();
+    for (unsigned int s = p.tracks_begin; s < p.tracks_end; ++s) {
+      if (s >= tracks.size())
+        throw std::runtime_error("filterParticles: particle -> track relation entry out of range");
+      out.tracks.push_back(tracks[s]);
+    }
+    p.tracks_begin = begin;
+    p.tracks_end = out.tracks.size();
+    p.clusters_begin = p.clusters_end = 0;
+    p.particles_begin = p.particles_end = 0;
+    out.particles.push_back(p);
+    edm4hep::ParticleIDData id = pid[pidOf[i]];
+    id.parameters_begin = id.parameters_end = 0;
+    out.pid.push_back(id);
+    out.recoIdx.push_back(recoIdx[i]);
   }
   return out;
 }
+
+inline rv::RVec<int> identityIndices(size_t n) {
+  rv::RVec<int> idx(n);
+  for (size_t i = 0; i < n; ++i) idx[i] = static_cast<int>(i);
+  return idx;
+}
+}  // namespace detail
+
+// The particles of a file collection for which keep(particle, its ParticleID) is true;
+// tracks = the particle -> track relation (indices), pidParticle = the ParticleID -> particle relation.
+template <typename Keep>
+ParticleSubset filterParticles(const rv::RVec<edm4hep::ReconstructedParticleData> &particles,
+                               const rv::RVec<int> &tracks,
+                               const rv::RVec<edm4hep::ParticleIDData> &pid,
+                               const rv::RVec<int> &pidParticle, const Keep &keep) {
+  return detail::filterParticles(particles, tracks, pid, pidParticle,
+                                 detail::identityIndices(particles.size()), keep);
+}
+
+// The same applied to a filtered collection.
+template <typename Keep>
+ParticleSubset filterParticles(const ParticleSubset &src, const Keep &keep) {
+  return detail::filterParticles(src.particles, src.tracks, src.pid,
+                                 detail::identityIndices(src.pid.size()), src.recoIdx, keep);
+}
+
+// Selection of RecoParticlesNoLumiCal: energy-flow type 0 to kPFMaxAnalysisType.
+struct isAnalysisType {
+  bool operator()(const edm4hep::ReconstructedParticleData &,
+                  const edm4hep::ParticleIDData &pid) const {
+    return pid.type >= 0 && pid.type <= kPFMaxAnalysisType;
+  }
+};
+
+// Selection of AnalysisParticles: not a photon or neutral hadron with energy below eMin [GeV].
+struct notSoftNeutral {
+  double eMin;
+  explicit notSoftNeutral(double e) : eMin(e) {}
+  bool operator()(const edm4hep::ReconstructedParticleData &p,
+                  const edm4hep::ParticleIDData &pid) const {
+    return !((pid.type == kPFPhoton || pid.type == kPFNeutralHad) && p.energy < eMin);
+  }
+};
 
 struct build_constituents_Types {
     rv::RVec<FCCAnalysesJetConstituentsData>

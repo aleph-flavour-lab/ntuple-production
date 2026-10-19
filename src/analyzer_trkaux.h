@@ -18,6 +18,7 @@
 
 #include "edm4hep/TrackState.h"
 #include "edm4hep/ParticleIDData.h"
+#include "edm4hep/ReconstructedParticleData.h"
 #include "FCCAnalyses/VertexingUtils.h"
 #include "FCCAnalyses/VertexFitterSimple.h"
 
@@ -149,22 +150,19 @@ inline double quadFormCov(const TVector3& a, const TVector3& b,
 // Particle-flow join: original track index -> ReconstructedParticle -> PF type.
 // ---------------------------------------------------------------------------
 
-// PF type code of the ParticleID collection (index-parallel to RecoParticles);
-// the same source pfcand_isChargedHad reads.
+// PF type code (ParticleID.type) of a charged hadron; the same code
+// pfcand_isChargedHad reads.
 constexpr int kPFChargedHad = 0;
 
-// ReconstructedParticle index of every original-Tracks index, -1 when no RP
-// points at the track. tracks_begin/tracks_end are offsets into the RP->Track
-// relation, and begin != end is the "has a track" test; a neutral's begin is
-// in range but meaningless.
-template <typename Idx>
-inline RVec<int> rpIndexByTrack(const RVec<Idx>& tracks_begin,
-                                const RVec<Idx>& tracks_end,
+// Index in `particles` of the particle that points at every original-Tracks
+// index, -1 when none does. tracks_begin/tracks_end are offsets into the
+// particle->Track relation, and begin != end is the "has a track" test; a
+// neutral's begin is meaningless.
+inline RVec<int> rpIndexByTrack(const RVec<edm4hep::ReconstructedParticleData>& particles,
                                 const RVec<int>& rpTrackIndex, size_t nTracks) {
   RVec<int> out(nTracks, -1);
-  const size_t n = std::min(tracks_begin.size(), tracks_end.size());
-  for (size_t i = 0; i < n; ++i)
-    for (size_t k = tracks_begin[i]; k < (size_t)tracks_end[i]; ++k) {
+  for (size_t i = 0; i < particles.size(); ++i)
+    for (size_t k = particles[i].tracks_begin; k < particles[i].tracks_end; ++k) {
       const int t = k < rpTrackIndex.size() ? rpTrackIndex[k] : -1;
       // out-of-range relation entry = corrupt input: fail loudly
       if (t < 0 || (size_t)t >= nTracks)
@@ -177,7 +175,8 @@ inline RVec<int> rpIndexByTrack(const RVec<Idx>& tracks_begin,
 
 // Tri-state PF charged-hadron flag of a candidate leg: 1 = its linked
 // ReconstructedParticle is a PF charged hadron, 0 = the RP is e/mu/other,
-// -1 = the track has no linked RP.
+// -1 = the track has no linked RP. pid is index-parallel to the particles
+// rp_of_track indexes.
 inline RVec<int> legIsChargedHad(const RVec<int>& orig_idx,
                                  const RVec<int>& rp_of_track,
                                  const RVec<edm4hep::ParticleIDData>& pid) {

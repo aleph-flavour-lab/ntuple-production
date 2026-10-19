@@ -26,7 +26,7 @@ DEDX_LEG_DEFINES = tuple(
 # candidate leg through its origIdx
 LEG_PID_DEFINES = (
     ("isChargedHad",
-     "FCCAnalyses::AlephTrkAux::legIsChargedHad({pfx}_origIdx, rpOfTrack, ParticleID)"),
+     "FCCAnalyses::AlephTrkAux::legIsChargedHad({pfx}_origIdx, rpOfTrack, ParticleIDNoLumiCal)"),
 )
 PF_CHARGED_HAD = "FCCAnalyses::AlephTrkAux::kPFChargedHad"
 
@@ -391,34 +391,38 @@ class Analysis():
         df = df.Define("event_number", "EventHeader.eventNumber")
         df = df.Define("run_number", "EventHeader.runNumber")
 
-        # Define RP kinematics
+        # Particle collections: filtered copies of RecoParticles (the input collections stay untouched), each with
+        # its ParticleID copy (matched through the ParticleID -> particle relation) and its particle -> track
+        # relation rebuilt for the new indices; RecoParticles and ParticleID are read only here
         ####################################################################################################
-        df = df.Define("RP_px", "ReconstructedParticle::get_px(RecoParticles)")
-        df = df.Define("RP_py", "ReconstructedParticle::get_py(RecoParticles)")
-        df = df.Define("RP_pz", "ReconstructedParticle::get_pz(RecoParticles)")
-        df = df.Define("RP_e", "ReconstructedParticle::get_e(RecoParticles)")
-        df = df.Define("RP_m", "ReconstructedParticle::get_mass(RecoParticles)")
-
-        # Analysis particles: RecoParticles without the photons and neutral hadrons below
-        # kNeutralMinE; the jets, EVT_Evis and the thrust are built from them
-        df = df.Define("RP_sel_idx", "AlephSelection::analysisParticleIndices(ParticleID, RP_e, AlephSelection::kNeutralMinE)")
-        df = df.Define("RP_sel_px", "ROOT::VecOps::Take(RP_px, RP_sel_idx)")
-        df = df.Define("RP_sel_py", "ROOT::VecOps::Take(RP_py, RP_sel_idx)")
-        df = df.Define("RP_sel_pz", "ROOT::VecOps::Take(RP_pz, RP_sel_idx)")
-        df = df.Define("RP_sel_e", "ROOT::VecOps::Take(RP_e, RP_sel_idx)")
+        # RecoParticlesNoLumiCal: energy-flow types 0 to kPFMaxAnalysisType (no HCAL, LCAL or SiCAL objects)
+        df = df.Define("RecoParticlesNoLumiCal_subset",  "AlephSelection::filterParticles(RecoParticles, _RecoParticles_tracks.index, ParticleID, _ParticleID_particle.index, AlephSelection::isAnalysisType())")
+        df = df.Define("RecoParticlesNoLumiCal",         "RecoParticlesNoLumiCal_subset.particles")
+        df = df.Define("ParticleIDNoLumiCal",            "RecoParticlesNoLumiCal_subset.pid")
+        df = df.Define("_RecoParticlesNoLumiCal_tracks", "RecoParticlesNoLumiCal_subset.tracks")
+        # AnalysisParticles: RecoParticlesNoLumiCal without the photons and neutral hadrons below kNeutralMinE;
+        # the jets, EVT_Evis and the thrust are built from them
+        df = df.Define("AnalysisParticles_subset",  "AlephSelection::filterParticles(RecoParticlesNoLumiCal_subset, AlephSelection::notSoftNeutral(AlephSelection::kNeutralMinE))")
+        df = df.Define("AnalysisParticles",         "AnalysisParticles_subset.particles")
+        df = df.Define("AnalysisParticleID",        "AnalysisParticles_subset.pid")
+        df = df.Define("_AnalysisParticles_tracks", "AnalysisParticles_subset.tracks")
+        df = df.Define("AnalysisParticles_px", "ReconstructedParticle::get_px(AnalysisParticles)")
+        df = df.Define("AnalysisParticles_py", "ReconstructedParticle::get_py(AnalysisParticles)")
+        df = df.Define("AnalysisParticles_pz", "ReconstructedParticle::get_pz(AnalysisParticles)")
+        df = df.Define("AnalysisParticles_e",  "ReconstructedParticle::get_e(AnalysisParticles)")
 
         # Define pseudo-jets
         ####################################################################################################
-        df = df.Define("pjetc", "JetClusteringUtils::set_pseudoJets(RP_sel_px, RP_sel_py, RP_sel_pz, RP_sel_e)")
+        df = df.Define("pjetc", "JetClusteringUtils::set_pseudoJets(AnalysisParticles_px, AnalysisParticles_py, AnalysisParticles_pz, AnalysisParticles_e)")
 
         # Exclusive ee_kt (Durham) clustering to exactly 2 jets, E-ordered, E-scheme; jet constituents
         ####################################################################################################
         df = df.Define("_jet", "JetClustering::clustering_ee_kt(2, 2, 1, 0)(pjetc)")
         df = df.Define("jets","JetClusteringUtils::get_pseudoJets(_jet)" )
-        # constituent indices into RecoParticles (and the index-parallel ParticleID)
-        df = df.Define("_jetc", "AlephSelection::constituentsToRecoIndices(JetClusteringUtils::get_constituents(_jet), RP_sel_idx)")
-        df = df.Define("jetc", "JetConstituentsUtils::build_constituents_cluster(RecoParticles, _jetc)")
-        df = df.Define("jetConstitutentsTypes", f"AlephSelection::build_constituents_Types()(ParticleID, _jetc)")
+        # constituent indices into AnalysisParticles (and the index-parallel AnalysisParticleID)
+        df = df.Define("_jetc", "JetClusteringUtils::get_constituents(_jet)")
+        df = df.Define("jetc", "JetConstituentsUtils::build_constituents_cluster(AnalysisParticles, _jetc)")
+        df = df.Define("jetConstitutentsTypes", f"AlephSelection::build_constituents_Types()(AnalysisParticleID, _jetc)")
         df = df.Define("JetClustering_d23", "std::sqrt(JetClusteringUtils::get_exclusive_dmerge(_jet, 2))")
         df = df.Define("JetClustering_d34", "std::sqrt(JetClusteringUtils::get_exclusive_dmerge(_jet, 3))")
 
@@ -428,11 +432,11 @@ class Analysis():
 
         ### Thrust variables
         # exact thrust {T, x, y, z} of the analysis particles, repacked into the {T, x, ex, y, ey, z, ez} layout of getAxisCosTheta/getThrustPointing
-        df = df.Define("EVT_thrustExact",   "Algorithms::calculate_thrust()(RP_sel_px, RP_sel_py, RP_sel_pz)")
+        df = df.Define("EVT_thrustExact",   "Algorithms::calculate_thrust()(AnalysisParticles_px, AnalysisParticles_py, AnalysisParticles_pz)")
         df = df.Define("EVT_thrustNP",      "EVT_thrustExact[0] < 0 ? ROOT::VecOps::RVec<float>{-1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f} : "
                                             "ROOT::VecOps::RVec<float>{EVT_thrustExact[0], EVT_thrustExact[1], 0.f, EVT_thrustExact[2], 0.f, EVT_thrustExact[3], 0.f}")
-        df = df.Define("RP_sel_thrustangleNP", 'Algorithms::getAxisCosTheta(EVT_thrustNP, RP_sel_px, RP_sel_py, RP_sel_pz)')
-        df = df.Define("EVT_thrust",        'Algorithms::getThrustPointing(1.)(RP_sel_thrustangleNP, RP_sel_e, EVT_thrustNP)')
+        df = df.Define("AnalysisParticles_thrustangleNP", 'Algorithms::getAxisCosTheta(EVT_thrustNP, AnalysisParticles_px, AnalysisParticles_py, AnalysisParticles_pz)')
+        df = df.Define("EVT_thrust",        'Algorithms::getThrustPointing(1.)(AnalysisParticles_thrustangleNP, AnalysisParticles_e, EVT_thrustNP)')
         df = df.Define("EVT_Thrust_Mag",    "EVT_thrust.at(0)")
         df = df.Define("EVT_Thrust_X",      "EVT_thrust.at(1)")
         df = df.Define("EVT_Thrust_Y",      "EVT_thrust.at(3)")
@@ -691,12 +695,12 @@ class Analysis():
         df = df.Define("v0_dz",  "FCCAnalyses::AlephSelection::get_dz_SV_jets(v0_jets, PrimaryVertexP3)")
 
         # joins feeding the candidate-leg branches below, built once per event:
-        # track -> ReconstructedParticle for the per-leg PF label, and track ->
+        # track -> RecoParticlesNoLumiCal index for the per-leg PF label, and track ->
         # dE/dx measurement index, where the shared validity gate is applied so
         # that a failed leg reads -1 in both the value and the error branch
         if self.do_v0new or self.do_phikk or self.do_dstar:
             df = df.Define("rpOfTrack",
-                           "FCCAnalyses::AlephTrkAux::rpIndexByTrack(RecoParticles.tracks_begin, RecoParticles.tracks_end, _RecoParticles_tracks.index, Tracks.size())")
+                           "FCCAnalyses::AlephTrkAux::rpIndexByTrack(RecoParticlesNoLumiCal, _RecoParticlesNoLumiCal_tracks, Tracks.size())")
             for _det, _coll in DEDX_COLLS:
                 df = df.Define(f"dedxJoin_{_det}",
                                f"FCCAnalyses::AlephV0New::dedxIndexByTrack({_coll}.dQdx.value, {_coll}.dQdx.error, _{_coll}_track.index, Tracks, _Tracks_trackStates, {self.dedx_gate})")
@@ -865,8 +869,8 @@ class Analysis():
         df = df.Define("pfcand_ptrel",     "AlephSelection::get_ptrel_cluster(jets, jetc)")
         df = df.Define("pfcand_ptrel_log", "AlephSelection::get_ptrel_log_cluster(jets, jetc)")
 
-        # tracks re-indexed through the RecoParticle->Track relation (see analyzer.h)
-        df = df.Define("TracksByRP", "AlephSelection::reindexByRPLink(Tracks, _RecoParticles_tracks.index)")
+        # tracks re-indexed through the AnalysisParticles->Track relation (see analyzer.h)
+        df = df.Define("TracksByRP", "AlephSelection::reindexByRPLink(Tracks, _AnalysisParticles_tracks)")
 
         # track fit quality per constituent (-1 for neutrals, which have no track)
         df = df.Define("pfcand_trackChi2",     "AlephSelection::get_constituent_trackChi2(jetc, TracksByRP)")
@@ -874,7 +878,7 @@ class Analysis():
         df = df.Define("pfcand_trackChi2Norm", "AlephSelection::get_constituent_trackChi2Norm(jetc, TracksByRP)")
 
         # original-Tracks index of each constituent's track (-1 = none), the join key to the finders' *_origIdx branches
-        df = df.Define("pfcand_trackIdx", "AlephSelection::get_constituent_trackIdx(jetc, _RecoParticles_tracks.index)")
+        df = df.Define("pfcand_trackIdx", "AlephSelection::get_constituent_trackIdx(jetc, _AnalysisParticles_tracks)")
 
         # subdetector hit counts per constituent (inside-out: VDET, ITC, TPC)
         # the offsets inside TrackData index the flat hit-number array, so it is passed as is
@@ -887,7 +891,7 @@ class Analysis():
         ############################################# Track Parameters and Covariance #######################################################
 
         df = df.Define("TrackStateFlipped",f"AlephSelection::flipD0_copy( {coll['TrackState']} )")
-        df = df.Define("TrackStateByRP", "AlephSelection::trackStatesByRPLink(TrackStateFlipped, Tracks, _RecoParticles_tracks.index)")
+        df = df.Define("TrackStateByRP", "AlephSelection::trackStatesByRPLink(TrackStateFlipped, Tracks, _AnalysisParticles_tracks)")
 
         # dxy/dz/phi0 at the PV; C and ct are the fitted curvature and dip angle
         df = df.Define("pfcand_trkparPV",   "AlephSelection::get_constituent_trackParamsAtPV(jetc, TrackStateByRP, Vertex_refit_tlv, Bz)")
@@ -985,7 +989,7 @@ class Analysis():
 
         # Get the dE/dx value and matching PID hypothesis pvalue from Bethe-Bloch fits for the jet constituents
         ## Pads
-        df = df.Define("jet_constituents_dEdx_PIDhypo_pads_result", f"AlephSelection::build_constituents_dEdx_PIDhypo()(RecoParticles, _RecoParticles_tracks.index, dEdxPads, _dEdxPads_track.index, _jetc, Tracks, _Tracks_trackStates, false, {self.dedx_gate})" )
+        df = df.Define("jet_constituents_dEdx_PIDhypo_pads_result", f"AlephSelection::build_constituents_dEdx_PIDhypo()(AnalysisParticles, _AnalysisParticles_tracks, dEdxPads, _dEdxPads_track.index, _jetc, Tracks, _Tracks_trackStates, false, {self.dedx_gate})" )
         df = df.Define("jet_constituents_dEdx_pads_objs", "jet_constituents_dEdx_PIDhypo_pads_result.dedx_constituents")
         df = df.Define("pfcand_dEdx_pads_type", "AlephSelection::get_dEdx_type(jet_constituents_dEdx_pads_objs)")
         df = df.Define("pfcand_dEdx_pads_value", "AlephSelection::get_dEdx_value(jet_constituents_dEdx_pads_objs)")
@@ -1000,7 +1004,7 @@ class Analysis():
         df = df.Define("pfcand_PID_pval_pads_proton", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_pads, 4)")
 
         ## Wires
-        df = df.Define("jet_constituents_dEdx_PIDhypo_wires_result", f"AlephSelection::build_constituents_dEdx_PIDhypo()(RecoParticles, _RecoParticles_tracks.index, dEdxWires, _dEdxWires_track.index, _jetc, Tracks, _Tracks_trackStates, true, {self.dedx_gate})" )
+        df = df.Define("jet_constituents_dEdx_PIDhypo_wires_result", f"AlephSelection::build_constituents_dEdx_PIDhypo()(AnalysisParticles, _AnalysisParticles_tracks, dEdxWires, _dEdxWires_track.index, _jetc, Tracks, _Tracks_trackStates, true, {self.dedx_gate})" )
         df = df.Define("jet_constituents_dEdx_wires_objs", "jet_constituents_dEdx_PIDhypo_wires_result.dedx_constituents")
         df = df.Define("pfcand_dEdx_wires_type", "AlephSelection::get_dEdx_type(jet_constituents_dEdx_wires_objs)")
         df = df.Define("pfcand_dEdx_wires_value", "AlephSelection::get_dEdx_value(jet_constituents_dEdx_wires_objs)")
@@ -1021,7 +1025,7 @@ class Analysis():
 
 
 
-        df = df.Define("EVT_Evis",          "Sum(RP_sel_e)")  # total visible energy: sum over the analysis particles [GeV]
+        df = df.Define("EVT_Evis",          "Sum(AnalysisParticles_e)")  # total visible energy: sum over the analysis particles [GeV]
         
 
         return df
