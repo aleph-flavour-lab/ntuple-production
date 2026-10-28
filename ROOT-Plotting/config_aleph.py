@@ -191,24 +191,6 @@ variables_pfcand = {
     # },
 
 
-    "pfcand_dEdx_pads_type": {
-        "name": "pfcand_dEdx_pads_type",
-        "title": "dE/dx pads type",
-        "bin": 2,
-        "xmin": -0.5,
-        "xmax": 1.5,
-        "scale": "lin",
-    },
-
-    "pfcand_dEdx_wires_type": {
-        "name": "pfcand_dEdx_wires_type",
-        "title": "dE/dx wires type",
-        "bin": 2,
-        "xmin": -0.5,
-        "xmax": 1.5,
-        "scale": "lin",
-    },
-
     "pfcand_dEdx_pads_value": {
         "name": "pfcand_dEdx_pads_value",
         "title": "dE/dx pads value [MeV/mm]",
@@ -227,21 +209,21 @@ variables_pfcand = {
         "scale": "lin",
     },
 
-    "pfcand_dEdx_pads_error": {
-        "name": "pfcand_dEdx_pads_error",
-        "title": "dE/dx pads error [MeV/mm]",
-        "bin": 100,
+    "pfcand_dEdx_pads_nSamples": {
+        "name": "pfcand_dEdx_pads_nSamples",
+        "title": "dE/dx pads number of samples",
+        "bin": 25,
         "xmin": 0,
-        "xmax": 5,
+        "xmax": 25,
         "scale": "lin",
     },
 
-    "pfcand_dEdx_wires_error": {
-        "name": "pfcand_dEdx_wires_error",
-        "title": "dE/dx wires error [MeV/mm]",
-        "bin": 100, 
+    "pfcand_dEdx_wires_nSamples": {
+        "name": "pfcand_dEdx_wires_nSamples",
+        "title": "dE/dx wires number of samples",
+        "bin": 100,
         "xmin": 0,
-        "xmax": 5,
+        "xmax": 400,
         "scale": "lin",
     },
 

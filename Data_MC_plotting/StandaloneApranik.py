@@ -105,19 +105,19 @@ VAR_MAP = {
 
     # --- dE/dx & PID (Pads) ---
     "pfcand_dEdx_pads_value": (0, 20, 30, r"dE/dx (Pads) [[GeV]]"),
-    "pfcand_PID_pval_pads_ele": (-1, 1, 30, r"Electron $p$-val (Pads)"),
-    "pfcand_PID_pval_pads_mu": (-1, 1, 30, r"Muon $p$-val (Pads)"),
-    "pfcand_PID_pval_pads_pi": (-1, 1, 30, r"Pion $p$-val (Pads)"),
-    "pfcand_PID_pval_pads_kaon": (-1, 1, 30, r"Kaon $p$-val (Pads)"),
-    "pfcand_PID_pval_pads_proton": (-1, 1, 30, r"Proton $p$-val (Pads)"),
+    "pfcand_dEdx_pads_pull_ele": (-5, 5, 30, r"Electron dE/dx pull (Pads)"),
+    "pfcand_dEdx_pads_pull_mu": (-5, 5, 30, r"Muon dE/dx pull (Pads)"),
+    "pfcand_dEdx_pads_pull_pi": (-5, 5, 30, r"Pion dE/dx pull (Pads)"),
+    "pfcand_dEdx_pads_pull_kaon": (-5, 5, 30, r"Kaon dE/dx pull (Pads)"),
+    "pfcand_dEdx_pads_pull_proton": (-5, 5, 30, r"Proton dE/dx pull (Pads)"),
 
     # --- dE/dx & PID (Wires) ---
     "pfcand_dEdx_wires_value": (0, 15, 30, r"dE/dx (Wires) [GeV]"),
-    "pfcand_PID_pval_wires_ele": (-1, 1, 30, r"Electron $p$-val (Wires)"),
-    "pfcand_PID_pval_wires_mu": (-1, 1, 30, r"Muon $p$-val (Wires)"),
-    "pfcand_PID_pval_wires_pi": (-1, 1, 30, r"Pion $p$-val (Wires)"),
-    "pfcand_PID_pval_wires_kaon": (-1, 1, 30, r"Kaon $p$-val (Wires)"),
-    "pfcand_PID_pval_wires_proton": (-1, 1, 30, r"Proton $p$-val (Wires)"),
+    "pfcand_dEdx_wires_pull_ele": (-5, 5, 30, r"Electron dE/dx pull (Wires)"),
+    "pfcand_dEdx_wires_pull_mu": (-5, 5, 30, r"Muon dE/dx pull (Wires)"),
+    "pfcand_dEdx_wires_pull_pi": (-5, 5, 30, r"Pion dE/dx pull (Wires)"),
+    "pfcand_dEdx_wires_pull_kaon": (-5, 5, 30, r"Kaon dE/dx pull (Wires)"),
+    "pfcand_dEdx_wires_pull_proton": (-5, 5, 30, r"Proton dE/dx pull (Wires)"),
 }
 
 # ======================================================================
