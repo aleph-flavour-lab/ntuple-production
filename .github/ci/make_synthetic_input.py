@@ -5,7 +5,8 @@ Writes one data-like and one MC-like podio ROOT file with the collection names a
 types of the converted ALEPH files that stage1.py reads:
 
   <out>/1994/synthetic_data.root   no MC truth (like the data)
-  <out>/QQB/synthetic_mc.root      plus MCParticles, trackMCLink, ecalClusterMCLink, GeneratorInfo
+  <out>/QQB/synthetic_mc.root      plus MCParticles, trackMCLink, ecalClusterMCLink, GeneratorInfo,
+                                   dEdxWiresQDEDXMPID, dEdxWiresQDEDXMMCLink
   <out>/beamspot.json              per-run beam-spot file for $ALEPH_BEAMSPOT_JSON (made-up values)
 
 The events are random but deterministic: event i of a file depends only on (--seed, data or
@@ -34,6 +35,14 @@ size, kinematics and fractions are generic; nothing is fitted to ALEPH data.
     whose refit after pruning is singular (pv_split_converged = 0 with pv_converged = 1);
     a nearly identical duplicate of a track (a collinear pair); a track with a huge error.
     The vertex-fit outcomes follow from the fit's eigenvalue floor in src/analyzer_pvnew.h.
+  - ALEPH's own reconstruction, in the converter's layout (src/analyzer_alephvars.h): dE/dx
+    hypotheses per track (dEdxWiresPID, dEdxPadsPID; failed measurements, error code 5 and
+    a few type-0 entries with dE/dx <= 0 included), V0 candidates (V0Vertices, V0VerticesRefitted
+    with the 30 YV0V words, RefittedParticles; the generated K0s/Lambda and random track pairs),
+    BeamSpot and LuminousRegion (some events with a fallback beam position or none), and in
+    the MC dEdxWiresQDEDXMPID and dEdxWiresQDEDXMMCLink. They come from a random stream of
+    their own, so the other collections do not depend on them. RunInformation holds the
+    beam energy (E_BEAM) and the field (BZ_TESLA).
 
 Conventions (those of the converted files):
   lengths cm, momenta GeV, Bz = 1.5 T; one track state per track, perigee to the origin;
@@ -56,7 +65,8 @@ import time
 
 import numpy as np
 
-KB = 0.0029979 * 1.5          # pT [GeV] = KB / |omega [1/cm]|
+BZ_TESLA = 1.5                # solenoid field [T]; RunInformation holds it in kG
+KB = 0.0029979 * BZ_TESLA     # pT [GeV] = KB / |omega [1/cm]|
 E_BEAM = 45.6
 CLASS_HADRONIC_BIT = 15       # class 16 = bit 15
 CLASS_LEPTONPAIR_BIT = 14     # class 15 = bit 14
@@ -178,6 +188,7 @@ class Event:
         self.awkward = None  # kind of awkward event (AWKWARD_KINDS), or None
         self.keep = None     # MC indices of the charged particles to reconstruct (None: all)
         self.special = {}    # MC index -> special treatment of its track (see fill_frame)
+        self.beamspot = (0.0, 0.0, 0.0)
 
     def add(self, name, q, p4, vtx, status=1, sign=1, visible=True, pdg=None, mass=None):
         if pdg is None:
@@ -307,6 +318,7 @@ def gen_hemisphere(rng, ev, pv, axis, flavour, sign):
 
 def gen_event(rng, beamspot, hadronic, flavour):
     ev = Event()
+    ev.beamspot = beamspot
     pv = (beamspot[0] + rng.gauss(0.0, 0.010), beamspot[1] + rng.gauss(0.0, 0.0015),
           beamspot[2] + rng.gauss(0.0, 0.8))
     ev.pv = pv
@@ -453,6 +465,64 @@ def dedx_mean(bg):
     return (0.85 + 0.075 * math.log(1.0 + bg * bg)) / b2
 
 
+# ALEPH's own reconstruction in the converter's layout (generic values, not tuned)
+HYP_MASSES = (M["e"], M["mu"], M["pi"], M["K"], M["p"])   # dE/dx hypotheses e, mu, pi, K, p
+P_PID_WIRE_CODE2 = 0.005        # data: wire measurements with ALPHA error code 2 (no values)
+P_PID_NONPOS = (0.004, 0.002)   # (pads, wires): type-0 entries with dE/dx 0 (pads) or slightly negative (wires)
+CODE5_BG = 0.3                  # pads: kaon and proton hypotheses below this p/m have error code 5 (expected 0)
+P_NO_BEST_MATCH = 0.03          # MC: tracks without a best-matching MC particle
+P_QDEDXM_CODE5 = 0.02           # MC: QDEDXM error code 5 (nothing simulated)
+P_BS_NONE, P_BS_FALLBACK = 0.01, 0.03   # events without a beam position, with a fill average (no luminous region)
+V0_FIT_CODES = (11, 11, 11, 11, 12, -11, -21)   # YV0V fit codes (-21: fit hypothesis 2, not a fit)
+
+
+def dedx_pid_params(crng, p, ntpc, leg, det, data_like):
+    """(type, 13 parameters) of the dEdx{Pads,Wires}PID entry of a track on detector det (0 pads, 1 wires);
+    leg = (value, error, failed, relative resolution) of its RecDqdx measurement there."""
+    value, _, failed, rel = leg
+    if failed:
+        return 3, [-999.0, 0.0, 0.0] + [-999.0] * 10
+    if det == 1 and data_like and crng.random() < P_PID_WIRE_CODE2:
+        return 2, [-999.0] * 13
+    if crng.random() < P_PID_NONPOS[det]:
+        value = 0.0 if det == 0 else -crng.uniform(0.001, 0.04)
+    par = [value, float(max(1, round(ntpc * (16 if det else 1) * crng.uniform(0.8, 1.0)))), 150.0 * ntpc / 21.0]
+    for m in HYP_MASSES:
+        e = dedx_mean(p / m)
+        par += [0.0, 0.0] if det == 0 and m > M["pi"] and p / m < CODE5_BG else [e, e * rel]
+    return 0, par
+
+
+def qdedxm_params(crng, p, ntpc, m_true, rel):
+    """(type, 17 parameters) of the dEdxWiresQDEDXMPID entry of a track: simulated around the expectation
+    of its MC particle (mass m_true)."""
+    head = [float(max(1, round(ntpc * 16 * crng.uniform(0.8, 1.0)))), 150.0 * ntpc / 21.0]
+    e_mc = dedx_mean(p / m_true)
+    if crng.random() < P_QDEDXM_CODE5:
+        return 5, [1.0] + head + [-999.0] * 10 + [m_true, 1.0, -999.0, -999.0]
+    par = [e_mc * (1.0 + rel * crng.gauss(0.0, 1.0))] + head
+    for m in HYP_MASSES:
+        e = dedx_mean(p / m)
+        par += [e, e * rel]
+    return 0, par + [m_true, 1.0, e_mc, e_mc * rel]
+
+
+def v0_words(crng, p1, p2, fit_code):
+    """The 30 YV0V words of a V0VerticesRefitted entry: Armenteros alpha, qT and their covariance, fit code,
+    helix distance, psi angles, covariance of (P1, P2) (lower triangle; P1-P2 terms 0 for fit hypothesis 2)."""
+    s2 = sum((a + b) ** 2 for a, b in zip(p1, p2))
+    cr = (p1[1] * p2[2] - p1[2] * p2[1], p1[2] * p2[0] - p1[0] * p2[2], p1[0] * p2[1] - p1[1] * p2[0])
+    words = [(sum(a * a for a in p1) - sum(b * b for b in p2)) / s2, math.sqrt(sum(c * c for c in cr) / s2),
+             1e-4, 1e-6, 1e-6, float(fit_code), crng.expovariate(1 / 0.05),
+             crng.uniform(-0.5, 0.5), crng.uniform(-0.5, 0.5)]
+    sig = [1e-3 * (1.0 + abs(x)) for x in list(p1) + list(p2)]
+    for i in range(6):
+        for j in range(i + 1):
+            cross = (i >= 3) != (j >= 3)
+            words.append(0.0 if cross and abs(fit_code) >= 20 else sig[i] * sig[j] * (1.0 if i == j else 0.1))
+    return words
+
+
 # ----------------------------------------------------------------------------------------
 # podio output
 # ----------------------------------------------------------------------------------------
@@ -462,8 +532,10 @@ def _rp_type(rp):
         rp.setType(0)
 
 
-def fill_frame(rng, ev, mode, run, ievt, classbits, stats, podio, edm4hep, ROOT):
-    """All collections of one event, in a podio Frame."""
+def fill_frame(rng, ev, mode, run, ievt, classbits, stats, podio, edm4hep, ROOT, crng=None):
+    """All collections of one event, in a podio Frame; crng = the random stream of ALEPH's own
+    reconstruction (dE/dx hypotheses, V0 candidates, beam spot)."""
+    crng = crng if crng is not None else random.Random("aleph")
     tracks = edm4hep.TrackCollection()
     pads = edm4hep.RecDqdxCollection()
     wires = edm4hep.RecDqdxCollection()
@@ -496,6 +568,7 @@ def fill_frame(rng, ev, mode, run, ievt, classbits, stats, podio, edm4hep, ROOT)
             mc_objs.append(m)
         trk_links = edm4hep.TrackMCParticleLinkCollection()
         cl_links = edm4hep.ClusterMCParticleLinkCollection()
+    track_info = []    # per track, in track order: (track, mc index, momentum, TPC hits, dE/dx legs)
 
     def add_track(idx, meas, cov, hits, chi2, ndf, dedx_fail):
         """One Track with its state, both dE/dx legs and (MC) its truth link."""
@@ -518,6 +591,7 @@ def fill_frame(rng, ev, mode, run, ievt, classbits, stats, podio, edm4hep, ROOT)
         # dE/dx on both legs; a failed leg stores the track omega (the converter's convention)
         p = math.sqrt(sum(x * x for x in part["p4"][:3]))
         bg = p / part["m"] if part["m"] > 0 else 1e4
+        legs = []
         for coll, res, fail, low in ((pads, 0.10, dedx_fail[0], P_DEDX_LOW[0]), (wires, 0.06, dedx_fail[1], P_DEDX_LOW[1])):
             d = coll.create()
             q = edm4hep.Quantity()
@@ -533,6 +607,8 @@ def fill_frame(rng, ev, mode, run, ievt, classbits, stats, podio, edm4hep, ROOT)
             q.type = 0
             d.setDQdx(q)
             d.setTrack(t)
+            legs.append((q.value, q.error, u < fail, sigma))
+        track_info.append((t, idx, p, hits[2], legs))
         if is_mc:
             lk = trk_links.create()
             lk.setFrom(t)
@@ -543,6 +619,7 @@ def fill_frame(rng, ev, mode, run, ievt, classbits, stats, podio, edm4hep, ROOT)
 
     # charged particles: tracks, dE/dx, energy-flow objects
     charged = []    # (track object, mc index, measured momentum, ef type)
+    trk_index_of_mc = {}   # mc index -> index of its (main) track
     for idx in ev.visible:
         part = ev.mc[idx]
         if part["q"] == 0 or (ev.keep is not None and idx not in ev.keep):
@@ -594,6 +671,7 @@ def fill_frame(rng, ev, mode, run, ievt, classbits, stats, podio, edm4hep, ROOT)
             chi2_scale *= math.exp(rng.uniform(0.0, math.log(20.0)))
         chi2 = rng.gammavariate(ndf / 2.0, 2.0) * chi2_scale
         t = add_track(idx, meas, cov, (nvdet, nitc, ntpc), chi2, ndf, P_DEDX_FAIL)
+        trk_index_of_mc[idx] = len(track_info) - 1
         ptm = KB / abs(meas[2])
         pm = tuple(x * ptm / pt for x in p3)
         eftype = {"e": 1, "mu": 2}.get(part["name"], 0)
@@ -623,13 +701,17 @@ def fill_frame(rng, ev, mode, run, ievt, classbits, stats, podio, edm4hep, ROOT)
     order = list(range(len(charged)))
     rng.shuffle(order)
     rp_of_mc = {}
+    rp_index_of_mc = {}           # charged: mc index -> RecoParticles index
+    rp_of_track = {}              # track index -> RecoParticle
     ef_types = []                 # energy-flow type per RecoParticle, in creation order
     for k in order:
         t, idx, pm, eftype = charged[k]
         if rng.random() < P_NO_EF and idx not in ev.special:
             continue
         mass = {1: M["e"], 2: M["mu"]}.get(eftype, M["pi"])
+        rp_index_of_mc[idx] = len(ef_types)
         r = rps.create()
+        rp_of_track[trk_index_of_mc[idx]] = r
         _rp_type(r)
         r.setCharge(float(ev.mc[idx]["q"]))
         r.setMass(float(mass))
@@ -704,33 +786,94 @@ def fill_frame(rng, ev, mode, run, ievt, classbits, stats, podio, edm4hep, ROOT)
             j.setMomentum(edm4hep.Vector3f(*mom))
             j.setEnergy(float(en))
 
-    # V0 candidates of the converter: the generated K0s/Lambda with both daughters measured
-    trk_of_mc = {idx: t for t, idx, _, _ in charged}
+    # ALEPH's own reconstruction, from the stream crng. dE/dx hypotheses: one ParticleID per track, in track order
+    pid_w = edm4hep.ParticleIDCollection()
+    pid_p = edm4hep.ParticleIDCollection()
+    if is_mc:
+        pid_qm = edm4hep.ParticleIDCollection()
+        qm_links = edm4hep.TrackMCParticleLinkCollection()
+    for ti, (t, idx, p, ntpc, legs) in enumerate(track_info):
+        entries = [(pid_w, *dedx_pid_params(crng, p, ntpc, legs[1], 1, not is_mc)),
+                   (pid_p, *dedx_pid_params(crng, p, ntpc, legs[0], 0, not is_mc))]
+        if is_mc:
+            entries.append((pid_qm, *qdedxm_params(crng, p, ntpc, ev.mc[idx]["m"], legs[1][3])))
+            if crng.random() >= P_NO_BEST_MATCH:
+                lk = qm_links.create()
+                lk.setFrom(t)
+                lk.setTo(mc_objs[idx])
+                lk.setWeight(1.0)
+        for coll, typ, par in entries:
+            pid = coll.create()
+            pid.setType(typ)
+            pid.setPDG(0)
+            pid.setAlgorithmType(0)
+            pid.setLikelihood(0.0)
+            for x in par:
+                pid.addToParameters(float(x))
+            if ti in rp_of_track:
+                pid.setParticle(rp_of_track[ti])
+
+    # beam spot (code 4: event chunk, with the luminous region; 2: fill average, without) or none
+    beamspot = edm4hep.VertexCollection()
+    lumregion = edm4hep.VertexCollection()
+    u = crng.random()
+    if u >= P_BS_NONE:
+        algo = 2 if u < P_BS_NONE + P_BS_FALLBACK else 4
+        ref = ev.pv if is_mc else ev.beamspot
+        pos = edm4hep.Vector3f(ref[0] + crng.gauss(0.0, 0.001), ref[1] + crng.gauss(0.0, 0.0005),
+                               0.0 if algo == 4 else ref[2])
+        err = (0.0020, 0.0010) if is_mc else (crng.uniform(0.0010, 0.0020), crng.uniform(0.0007, 0.0012))
+        for coll, sx, sy, sz in ((beamspot, *err, 1.0), (lumregion, 0.0125, 0.0005, 0.7)):
+            if coll is lumregion and algo != 4:
+                continue
+            b = coll.create()
+            b.setPosition(pos)
+            b.setCovMatrix(edm4hep.CovMatrix3f(sx * sx, 0.0, sy * sy, 0.0, 0.0, sz * sz))
+            b.setAlgorithmType(algo)
+
+    # V0 candidates in the converter's layout (YV0V): the generated K0s/Lambda with both daughters measured
+    # and a few random opposite-charge track pairs. V0Vertices links the daughters' RecoParticles in
+    # RecoParticles order (a daughter without one is not linked), V0VerticesRefitted the refitted daughters
+    # (positive first) in RefittedParticles, and holds the 30 YV0V words; V0Particles(Refitted) point at both.
+    meas_of_mc = {idx: pm for _, idx, pm, _ in charged}
+    pairs = []
     for pdg, dv, ia, ib in ev.v0s:
-        if ia not in trk_of_mc or ib not in trk_of_mc:
-            continue
-        for vcoll, pcoll in ((v0v, v0p), (v0vr, v0pr)):
-            vv = vcoll.create()
-            vv.setType(0)
-            vv.setPosition(edm4hep.Vector3f(*(dv[k] + rng.gauss(0.0, 0.05) for k in range(3))))
-            vp = pcoll.create()
-            vp.setPDG(pdg)
-            _rp_type(vp)
-            p3 = [ev.mc[ia]["p4"][k] + ev.mc[ib]["p4"][k] for k in range(3)]
-            vp.setMomentum(edm4hep.Vector3f(*p3))
-            vp.setMass(float(M["K0S"] if pdg == 310 else M["Lambda"]))
-            vp.setEnergy(float(ev.mc[ia]["p4"][3] + ev.mc[ib]["p4"][3]))
-            vp.addToTracks(trk_of_mc[ia])
-            vp.addToTracks(trk_of_mc[ib])
-            vp.setDecayVertex(vv)
-            vv.addToParticles(vp)
-        for i in (ia, ib):
+        if ia in meas_of_mc and ib in meas_of_mc:
+            pairs.append((dv, ia, ib) if ev.mc[ia]["q"] > 0 else (dv, ib, ia))
+    plus = sorted(i for i in meas_of_mc if ev.mc[i]["q"] > 0)
+    minus = sorted(i for i in meas_of_mc if ev.mc[i]["q"] < 0)
+    for _ in range(crng.randint(0, 2) if plus and minus else 0):
+        pairs.append((tuple(ev.pv[k] + crng.gauss(0.0, 0.5) for k in range(3)), crng.choice(plus), crng.choice(minus)))
+    for dv, pos_d, neg_d in pairs:
+        p1 = [x * (1.0 + crng.gauss(0.0, 0.002)) for x in meas_of_mc[pos_d]]
+        p2 = [x * (1.0 + crng.gauss(0.0, 0.002)) for x in meas_of_mc[neg_d]]
+        words = v0_words(crng, p1, p2, crng.choice(V0_FIT_CODES))
+        vtx = edm4hep.Vector3f(*(dv[k] + crng.gauss(0.0, 0.05) for k in range(3)))
+        chi2 = crng.expovariate(1.0)
+        daughters = [rp_of_mc[i][0] for _, i in sorted((rp_index_of_mc[i], i) for i in (pos_d, neg_d) if i in rp_index_of_mc)]
+        refitted = []
+        for p3, q in ((p1, 1.0), (p2, -1.0)):
             rf = refit.create()
             _rp_type(rf)
-            rf.setCharge(float(ev.mc[i]["q"]))
-            rf.setMomentum(edm4hep.Vector3f(*ev.mc[i]["p4"][:3]))
-            rf.setEnergy(float(ev.mc[i]["p4"][3]))
-            rf.addToTracks(trk_of_mc[i])
+            rf.setCharge(q)
+            rf.setMomentum(edm4hep.Vector3f(*p3))
+            refitted.append(rf)
+        for vcoll, pcoll, linked in ((v0v, v0p, daughters), (v0vr, v0pr, refitted)):
+            vv = vcoll.create()
+            vv.setType(0)
+            vv.setPosition(vtx)
+            vv.setCovMatrix(edm4hep.CovMatrix3f(0.0025, 1e-4, 0.0025, 0.0, 0.0, 0.0064))
+            vv.setChi2(float(chi2))
+            vp = pcoll.create()
+            _rp_type(vp)
+            vp.setMomentum(edm4hep.Vector3f(*(a + b for a, b in zip(p1, p2))))
+            vp.setDecayVertex(vv)
+            for r in linked:
+                vv.addToParticles(r)
+                vp.addToParticles(r)
+            if vcoll is v0vr:
+                for w in words:
+                    vv.addToParameters(float(w))
 
     header = edm4hep.EventHeaderCollection()
     h = header.create()
@@ -741,7 +884,10 @@ def fill_frame(rng, ev, mode, run, ievt, classbits, stats, podio, edm4hep, ROOT)
     cb = ROOT.podio.UserDataCollection["uint32_t"]()
     cb.push_back(int(classbits))
     runinfo = ROOT.podio.UserDataCollection["float"]()
-    for x in (E_BEAM * 1e3, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0):   # placeholders, not read by stage1
+    # the converter's layout: beam energy [MeV], field [kG], then (data only) the RALE magnet words, then the
+    # two luminosities; stage1 reads the first two
+    bz_kg = BZ_TESLA * 10.0
+    for x in ((E_BEAM * 1e3, bz_kg, 0.0, 0.0) if is_mc else (E_BEAM * 1e3, bz_kg, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0)):
         runinfo.push_back(float(x))
 
     frame = podio.Frame()
@@ -751,12 +897,15 @@ def fill_frame(rng, ev, mode, run, ievt, classbits, stats, podio, edm4hep, ROOT)
                        (rps, "RecoParticles"), (refit, "RefittedParticles"),
                        (runinfo, "RunInformation"), (tracks, "Tracks"), (v0p, "V0Particles"),
                        (v0pr, "V0ParticlesRefitted"), (v0v, "V0Vertices"),
-                       (v0vr, "V0VerticesRefitted"), (vertices, "Vertices")):
+                       (v0vr, "V0VerticesRefitted"), (vertices, "Vertices"), (pid_p, "dEdxPadsPID"),
+                       (pid_w, "dEdxWiresPID"), (beamspot, "BeamSpot"), (lumregion, "LuminousRegion")):
         frame.put(coll, name)
     if is_mc:
         gen = edm4hep.GeneratorEventParametersCollection()
         g = gen.create()
         g.setSqrts(2 * E_BEAM)
+        frame.put(pid_qm, "dEdxWiresQDEDXMPID")
+        frame.put(qm_links, "dEdxWiresQDEDXMMCLink")
         frame.put(cl_links, "ecalClusterMCLink")
         frame.put(gen, "GeneratorInfo")
         frame.put(mcps, "MCParticles")
@@ -801,7 +950,8 @@ def write_chunk(task):
         if hadronic and rng.random() < AWKWARD_FRACTION:
             make_awkward(rng, ev, AWKWARD_KINDS[int(rng.random() * len(AWKWARD_KINDS))])
             stats[f"awkward {ev.awkward}"] += 1
-        frame = fill_frame(rng, ev, mode, runs[k], i + 1, class_bits(rng, hadronic), stats, podio, edm4hep, ROOT)
+        frame = fill_frame(rng, ev, mode, runs[k], i + 1, class_bits(rng, hadronic), stats, podio, edm4hep, ROOT,
+                           crng=random.Random(f"{seed}/{mode}/{i}/aleph"))
         stats["events"] += 1
         stats["hadronic"] += int(hadronic)
         stats["bb"] += int(hadronic and flavour == 5)
