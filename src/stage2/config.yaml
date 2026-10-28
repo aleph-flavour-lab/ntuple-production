@@ -87,28 +87,26 @@ pfcand_variables:
   - pfcand_btagJetDistSig
   
   # dE/dx variables - pads
-  - pfcand_dEdx_pads_type
   - pfcand_dEdx_pads_value
-  - pfcand_dEdx_pads_error
+  - pfcand_dEdx_pads_nSamples
   
-  # PID p-values - pads
-  - pfcand_PID_pval_pads_ele
-  - pfcand_PID_pval_pads_mu
-  - pfcand_PID_pval_pads_pi
-  - pfcand_PID_pval_pads_kaon
-  - pfcand_PID_pval_pads_proton
+  # dE/dx pulls - pads
+  - pfcand_dEdx_pads_pull_ele
+  - pfcand_dEdx_pads_pull_mu
+  - pfcand_dEdx_pads_pull_pi
+  - pfcand_dEdx_pads_pull_kaon
+  - pfcand_dEdx_pads_pull_proton
   
   # dE/dx variables - wires
-  - pfcand_dEdx_wires_type
   - pfcand_dEdx_wires_value
-  - pfcand_dEdx_wires_error
+  - pfcand_dEdx_wires_nSamples
   
-  # PID p-values - wires
-  - pfcand_PID_pval_wires_ele
-  - pfcand_PID_pval_wires_mu
-  - pfcand_PID_pval_wires_pi
-  - pfcand_PID_pval_wires_kaon
-  - pfcand_PID_pval_wires_proton
+  # dE/dx pulls - wires
+  - pfcand_dEdx_wires_pull_ele
+  - pfcand_dEdx_wires_pull_mu
+  - pfcand_dEdx_wires_pull_pi
+  - pfcand_dEdx_wires_pull_kaon
+  - pfcand_dEdx_wires_pull_proton
 
 # Input tree name
 input_tree_name: events
