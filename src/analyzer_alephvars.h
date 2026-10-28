@@ -106,8 +106,8 @@ inline TrackDedx trackDedx(const RVec<edm4hep::ParticleIDData>& pid,
 }
 
 // Entries of a per-track array (one entry per Tracks entry) at the Tracks
-// indices idx, e.g. the dE/dx of candidate legs; idx -1 (no track) reads
-// kNotAvailable.
+// indices idx, e.g. the dE/dx of candidate legs or jet constituents; idx -1
+// (no track) reads kNotAvailable.
 inline RVec<float> atTrack(const RVec<float>& perTrack, const RVec<int>& idx) {
   RVec<float> out;
   out.reserve(idx.size());
@@ -121,6 +121,14 @@ inline RVec<float> atTrack(const RVec<float>& perTrack, const RVec<int>& idx) {
                                " out of range");
     out.push_back(perTrack[i]);
   }
+  return out;
+}
+
+// The same per jet, e.g. for the jet constituents (pfcand_trackIdx).
+inline RVec<RVec<float>> atTrack(const RVec<float>& perTrack, const RVec<RVec<int>>& idx) {
+  RVec<RVec<float>> out;
+  out.reserve(idx.size());
+  for (const auto& jet : idx) out.push_back(atTrack(perTrack, jet));
   return out;
 }
 

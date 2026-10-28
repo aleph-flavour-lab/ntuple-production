@@ -44,7 +44,7 @@ ROOT.gInterpreter.Declare("""
     ROOT::RVec<double> maskPAndDedx(const ROOT::RVec<double>& values, 
                                     const ROOT::RVec<double>& p, 
                                     const ROOT::RVec<double>& dedx,
-                                    double p_min=0., double dedx_min = 0., double dedx_max=0., double default_val=-9.) {
+                                    double p_min=0., double dedx_min = 0., double dedx_max=0., double default_val=-999.) {
        ROOT::RVec<double> result = values;
        
        if (p_min == 0. && dedx_min && dedx_max == 0.){
@@ -313,8 +313,8 @@ def get_hist_from_tree(proc_name, input_filepath, plot_specs, norm_file=None,
         for branch in branches_to_mask:
             new_branch_names = (f"{branch}_jet1_masked", f"{branch}_jet2_masked")
             print(f"Going to mask branch {branch} for jet one and jet two with names {new_branch_names[0]}, {new_branch_names[1]}")
-            rdf = rdf.Define(new_branch_names[0], f"maskPAndDedx({branch}[0], pfcand_p[0], pfcand_dEdx_wires_value[0], {selection.p_min}, {selection.dedx_min}, {selection.dedx_max}, -9.)")
-            rdf = rdf.Define(new_branch_names[1], f"maskPAndDedx({branch}[1], pfcand_p[1], pfcand_dEdx_wires_value[1], {selection.p_min}, {selection.dedx_min}, {selection.dedx_max}, -9.)")
+            rdf = rdf.Define(new_branch_names[0], f"maskPAndDedx({branch}[0], pfcand_p[0], pfcand_dEdx_wires_value[0], {selection.p_min}, {selection.dedx_min}, {selection.dedx_max}, -999.)")
+            rdf = rdf.Define(new_branch_names[1], f"maskPAndDedx({branch}[1], pfcand_p[1], pfcand_dEdx_wires_value[1], {selection.p_min}, {selection.dedx_min}, {selection.dedx_max}, -999.)")
 
     #if needed, define a new column so we can plot it:
     if plot_specs.redefine:

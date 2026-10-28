@@ -6,11 +6,11 @@ masked_branches_dict ={
 	"Zqq_data_MC_vars_dEdx":[
 		"pfcand_p",
 		"pfcand_dEdx_wires_value",
-        "pfcand_PID_pval_wires_ele", 
-        "pfcand_PID_pval_wires_mu",
-        "pfcand_PID_pval_wires_pi",
-        "pfcand_PID_pval_wires_kaon",
-        "pfcand_PID_pval_wires_proton"
+        "pfcand_dEdx_wires_pull_ele",
+        "pfcand_dEdx_wires_pull_mu",
+        "pfcand_dEdx_wires_pull_pi",
+        "pfcand_dEdx_wires_pull_kaon",
+        "pfcand_dEdx_wires_pull_proton"
 	]
 }
 
@@ -404,22 +404,22 @@ Zqq_data_MC_vars_dEdx = {
 	# 	redefine="filterByFlagLead(pfcand_PID_pval_wires_kaon[1], pfcand_isMu[1])"),
 
 	# all charged hadrons
-	"PID_pval_kaon_wires_jet1_chargedHad": PlotSpecs(name="pfcand_PID_pval_wires_kaon_jet1_chargedHad", xmin=-1.1, xmax=1.1, 
-		nbins=default_binning, label="p-val kaon charged hadrons in jet1 (wires)",  
-		redefine="filterByFlag(pfcand_PID_pval_wires_kaon[0], pfcand_isChargedHad[0])"),
+	"dEdx_pull_kaon_wires_jet1_chargedHad": PlotSpecs(name="pfcand_dEdx_wires_pull_kaon_jet1_chargedHad", xmin=-5., xmax=5.,
+		nbins=default_binning, label="kaon dE/dx pull charged hadrons in jet1 (wires)",
+		redefine="filterByFlag(pfcand_dEdx_wires_pull_kaon[0], pfcand_isChargedHad[0])"),
 
-	"PID_pval_kaon_wires_jet2_chargedHad": PlotSpecs(name="pfcand_PID_pval_wires_kaon_jet2_chargedHad", xmin=-1.1, xmax=1.1, 
-		nbins=default_binning, label="p-val kaon charged hadrons in jet2 (wires)",  
-		redefine="filterByFlag(pfcand_PID_pval_wires_kaon[1], pfcand_isChargedHad[1])"),
+	"dEdx_pull_kaon_wires_jet2_chargedHad": PlotSpecs(name="pfcand_dEdx_wires_pull_kaon_jet2_chargedHad", xmin=-5., xmax=5.,
+		nbins=default_binning, label="kaon dE/dx pull charged hadrons in jet2 (wires)",
+		redefine="filterByFlag(pfcand_dEdx_wires_pull_kaon[1], pfcand_isChargedHad[1])"),
 
 	# leading charged hadron
-	"PID_pval_kaon_wires_jet1_chargedHad_leading": PlotSpecs(name="pfcand_PID_pval_wires_kaon_jet1_chargedHad_leading", 
-		xmin=-1.1, xmax=1.1, nbins=default_binning, label="p-val kaon leading charged hadron in jet1 (wires)",  
-		redefine="filterByFlagLead(pfcand_PID_pval_wires_kaon[0], pfcand_isChargedHad[0])"),
+	"dEdx_pull_kaon_wires_jet1_chargedHad_leading": PlotSpecs(name="pfcand_dEdx_wires_pull_kaon_jet1_chargedHad_leading",
+		xmin=-5., xmax=5., nbins=default_binning, label="kaon dE/dx pull leading charged hadron in jet1 (wires)",
+		redefine="filterByFlagLead(pfcand_dEdx_wires_pull_kaon[0], pfcand_isChargedHad[0])"),
 
-	"PID_pval_kaon_wires_jet2_chargedHad_leading": PlotSpecs(name="pfcand_PID_pval_wires_kaon_jet2_chargedHad_leading", 
-		xmin=-1.1, xmax=1.1, nbins=default_binning, label="p-val kaon leading charged hadron in jet2 (wires)",  
-		redefine="filterByFlagLead(pfcand_PID_pval_wires_kaon[1], pfcand_isChargedHad[1])"),
+	"dEdx_pull_kaon_wires_jet2_chargedHad_leading": PlotSpecs(name="pfcand_dEdx_wires_pull_kaon_jet2_chargedHad_leading",
+		xmin=-5., xmax=5., nbins=default_binning, label="kaon dE/dx pull leading charged hadron in jet2 (wires)",
+		redefine="filterByFlagLead(pfcand_dEdx_wires_pull_kaon[1], pfcand_isChargedHad[1])"),
 	
 	# ## proton p-values
 	# # all pfcandidates

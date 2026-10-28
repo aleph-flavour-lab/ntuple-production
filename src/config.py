@@ -339,14 +339,6 @@ variables_pfcand = {
         "scale": "lin",
     },
 
-  "pfcand_dEdx_pads_type": {
-        "name": "pfcand_dEdx_pads_type",
-        "title": "dEdx Pads Type",
-        "bin": 100,
-        "xmin": -20,
-        "xmax": 20,
-        "scale": "lin",
-    },
     "pfcand_dEdx_pads_value": {
         "name": "pfcand_dEdx_pads_value",
         "title": "dEdx Pads Error",
@@ -355,24 +347,16 @@ variables_pfcand = {
         "xmax": 20,
         "scale": "lin",
     },
-    "pfcand_dEdx_pads_error": {
-        "name": "pfcand_dEdx_pads_error",
-        "title": "dEdx Wires Value",
-        "bin": 100,
-        "xmin": -20,
-        "xmax": 20,
+    "pfcand_dEdx_pads_nSamples": {
+        "name": "pfcand_dEdx_pads_nSamples",
+        "title": "dEdx Pads Number of Samples",
+        "bin": 25,
+        "xmin": 0,
+        "xmax": 25,
         "scale": "lin",
     },
     ###
 
-      "pfcand_dEdx_wires_type": {
-        "name": "pfcand_dEdx_wires_type",
-        "title": "dEdx Pads Type",
-        "bin": 100,
-        "xmin": -20,
-        "xmax": 20,
-        "scale": "lin",
-    },
     "pfcand_dEdx_wires_value": {
         "name": "pfcand_dEdx_wires_value",
         "title": "dEdx Pads Error",
@@ -381,12 +365,12 @@ variables_pfcand = {
         "xmax": 20,
         "scale": "lin",
     },
-    "pfcand_dEdx_wires_error": {
-        "name": "pfcand_dEdx_wires_error",
-        "title": "dEdx Wires Value",
+    "pfcand_dEdx_wires_nSamples": {
+        "name": "pfcand_dEdx_wires_nSamples",
+        "title": "dEdx Wires Number of Samples",
         "bin": 100,
-        "xmin": -20,
-        "xmax": 20,
+        "xmin": 0,
+        "xmax": 400,
         "scale": "lin",
     },
 

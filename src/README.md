@@ -49,8 +49,6 @@ Only the data runs selected in `data/lumi/run_list_<year>.csv` are kept, before 
 
 `run_list.luminosity_pb(year)` describes the whole list, and the printed summary differs from it only by the `--excludeRuns` runs; neither describes the data a production actually processed: they do not follow `--fraction` (which keeps the first input files up to that fraction of the events, i.e. a subset of the runs, not that fraction of the luminosity), a subset of the input files, failed or missing jobs, or `--noRunList` (the unselected runs have no luminosity in it). stage1 always selects the runs of the default `nominal` policy, so the luminosity of another policy applies only to data restricted to `run_list.good_runs(year, policy)`. For such productions sum `run_list.run_luminosities(year, policy)` (`nominal` by default) over the distinct `run_number` values of the output (exact when whole input files are processed: no 1994 run is split across files). Only the selected runs have an entry, so for a `--noRunList` output this sum covers its selected runs only; restrict the events to `run_list.good_runs(year, policy)` first. `$ALEPH_RUN_LIST_<year>`, like `$ALEPH_BEAMSPOT_JSON` (the per-run beamspot file of the data), is read by the job itself, and `fccanalysis submit` does not pass the submitting shell's environment to the HTCondor jobs (`getenv = False`): batch jobs use the default files whatever is set at submission.
 
-`--noDedxGate` (data and MC) accepts every linked dE/dx measurement of the `pfcand_dEdx_*` block as valid, i.e. switches off the failed-leg omega sentinel gate. Use it with converters that no longer copy the track omega into a failed leg.
-
 The baseline track selection shared by the primary vertex fit, the V0 finder, the secondary vertex finders and the φ→K⁺K⁻ and D* finders (whose pairing pool is the baseline list minus the tight `v0n` daughters), and recorded in `trk_member` bit 9, requires `chi2/ndf <= 10`, finite track-state parameters, a finite positive-definite perigee covariance (5x5 block, Cholesky test), at least `kTrackMinTPCHits` (4) TPC hits and `|z0| <= kTrackMaxAbsZ0` (50 cm, perigee to the origin); `--oldTrackSel` (data and MC) drops the TPC-hit and `|z0|` requirements, for all of them. In simulation it roughly triples the D* candidates and the running time.
 
 `pfcand_d0` and `pfcand_z0` are the **raw** perigee impact parameters of the track linked to each jet constituent, taken from the stored track state: referenced to the coordinate origin, in cm, in the LCIO sign convention (the ALEPH→LCIO flip of `D0` and `omega` is applied; the `pfcand_*` covariance branches are read from the same flipped collection). They are *not* recomputed at the primary vertex — `pfcand_dxy` and `pfcand_dz` are the PV-referenced ones. A constituent with no track (a neutral) carries the guard value −9 in both, again as for the covariance branches; the PV-referenced `pfcand_dxy/dz/phi0/C/ct` also read −9 for a charge-0 constituent that carries a track link.
@@ -59,7 +57,7 @@ The −9 sentinel of `pfcand_d0`/`pfcand_z0` lies inside the physical range of t
 
 `pfcand_C` is now half the fitted curvature, |omega|/2 in 1/cm, signed by the charge. It was previously Bz·c/(2 pT) from the energy-flow pT in 1/mm, so both the scale (a factor 10) and the source differ — the latter matters for V0 daughters, whose energy-flow momentum is quoted at the V0 vertex.
 
-`pfcand_dEdx_pads_type` and `pfcand_dEdx_wires_type` are no longer a validity mask: an accepted leg can carry any type and a rejected one reads −9 in value, error and type, so test the value branch rather than `type == 0`.
+`pfcand_dEdx_{wires,pads}_{value,nSamples,pull_<h>}` are the `trk_dEdx_*` entries of the constituent's track (`pfcand_trackIdx`; see [ALEPH's own reconstruction](#alephs-own-reconstruction-converter-collections)): −999 as there, and for a constituent without a track.
 
 ### Reconstruction modules: defaults and opt-outs
 
@@ -122,7 +120,7 @@ The two daughter legs `v0n_trk1_*` / `v0n_trk2_*` are in momentum order, `v0n_tr
 
 `v0n_alpha` follows the physical charge — the positive track is taken first, so α = (p∥⁺ − p∥⁻)/(p∥⁺ + p∥⁻), and α > 0 means Λ rather than Λ̄.
 
-The daughter dE/dx branches of every finder (`v0n`, `phikk`, `dstar` legs) are copies of the per-track `trk_dEdx_{wires,pads}_{value,nSamples,pull_<h>}` (see [ALEPH's own reconstruction](#alephs-own-reconstruction-converter-collections)), with the same −999 sentinel; they differ from the −9 of the `pfcand_dEdx_*` block. The other per-track dE/dx branches (expected dE/dx, resolution, track length, error code) are read at the leg's `_origIdx`, e.g. `trk_dEdx_wires_sigma_pi[v0n_trk1_origIdx]`.
+The daughter dE/dx branches of every finder (`v0n`, `phikk`, `dstar` legs), like `pfcand_dEdx_*`, are copies of the per-track `trk_dEdx_{wires,pads}_{value,nSamples,pull_<h>}` (see [ALEPH's own reconstruction](#alephs-own-reconstruction-converter-collections)), with the same −999 sentinel. The other per-track dE/dx branches (expected dE/dx, resolution, track length, error code) are read at the leg's `_origIdx` (a jet constituent's `pfcand_trackIdx`), e.g. `trk_dEdx_wires_sigma_pi[v0n_trk1_origIdx]`.
 
 ### Jet-relative V0 tagger inputs
 
@@ -379,7 +377,7 @@ Per track, arrays over the whole `Tracks` collection like `trk_member` (a leg re
 | `trk_mcNLinks` | simulation: number of MC particles linked to the track in `trackMCLink` | — | always on data |
 | `trk_trueSharedFrac` | simulation: `trackMCLink` weight of the link to the best-matching MC particle, the fraction of the track's ITC and TPC coordinates attributed to it (can exceed 1) | — | as `trk_trueP`; −1 = the best match is not among the track's links |
 
-These differ from `pfcand_dEdx_*`, which reads the `dEdxWires`/`dEdxPads` measurements of a dummy 1 GeV hypothesis (no pad value below about 0.15-0.2 GeV in 1994). A simulated event without the ALPHA MC banks (the MC truth, `FKIN`/`FVER` or `KINE`/`VERT`) has empty QDEDXM collections and reads −999 in `trk_dEdx_wiresQDEDXM_*`, `trk_true*` and `trk_mcNLinks`.
+A simulated event without the ALPHA MC banks (the MC truth, `FKIN`/`FVER` or `KINE`/`VERT`) has empty QDEDXM collections and reads −999 in `trk_dEdx_wiresQDEDXM_*`, `trk_true*` and `trk_mcNLinks`.
 
 Only with `--alephV0s` (data and MC; without it these branches are not written and their collections are not required), per ALEPH V0 candidate (`YV0V`), in the order of `V0Vertices`, `n_yv0_event` per event (the Mini-DST keeps at most 29 per event in the 1994 data of version 202, 50 in simulation):
 
@@ -400,7 +398,7 @@ Per event, from `RunInformation`: `EVT_Ebeam`, the LEP beam energy (`RLEP`) in G
 
 stage1 stops when a converter collection breaks its documented layout, e.g. a dE/dx collection without one entry per track (an empty QDEDXM collection excepted), best-match links in an event without QDEDXM entries, a relation index out of range or a `RunInformation` list of another layout.
 
-An input converted before these collections existed (e.g. the older official EDM4hep files) stops stage1 with an error naming the missing collections, before any event is read. `--oldConverter` (data and MC) lets stage1 run instead and write −999 placeholders for the missing collections: per-track arrays of −999, `n_yv0_event` −999 with empty `yv0_*` arrays (with `--alephV0s`); with it, V0 candidates without the `YV0V` words read −999 in `yv0_fitCode`, `yv0_helixDistance` and the Armenteros branches, and `EVT_Bz` reads −999 if `RunInformation` holds no field. The candidate legs' dE/dx (`<leg>_dEdx_*`) are then −999 too.
+An input converted before these collections existed (e.g. the older official EDM4hep files) stops stage1 with an error naming the missing collections, before any event is read. `--oldConverter` (data and MC) lets stage1 run instead and write −999 placeholders for the missing collections: per-track arrays of −999, `n_yv0_event` −999 with empty `yv0_*` arrays (with `--alephV0s`); with it, V0 candidates without the `YV0V` words read −999 in `yv0_fitCode`, `yv0_helixDistance` and the Armenteros branches, and `EVT_Bz` reads −999 if `RunInformation` holds no field. The candidate legs' and jet constituents' dE/dx (`<leg>_dEdx_*`, `pfcand_dEdx_*`) are then −999 too.
 
 ### Run on batch:
 ```

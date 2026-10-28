@@ -149,6 +149,9 @@ LEG_DEDX_MEMBERS = tuple(m for m in TRK_DEDX_MEMBERS if m[0] in ("value", "nSamp
 DEDX_LEG_DEFINES = tuple(
     (f"dEdx_{_d}_{_b}", f"FCCAnalyses::AlephVars::atTrack(trk_dEdx_{_d}_{_b}, {{pfx}}_origIdx)")
     for _d, _, _ in TRK_DEDX_DETS for _b, _ in LEG_DEDX_MEMBERS)
+# Jet-constituent dE/dx: (branch, per-track source), read at pfcand_trackIdx, nested like the other pfcand_*
+PFCAND_DEDX_DEFINES = tuple((f"pfcand_dEdx_{_d}_{_b}", f"trk_dEdx_{_d}_{_b}")
+                            for _d, _, _ in TRK_DEDX_DETS for _b, _ in LEG_DEDX_MEMBERS)
 # best-match truth per track: (branch, member of AlephVars::TrackTruth, type)
 TRK_TRUTH_MEMBERS = (("trk_truePdg", "pdg", "int"), ("trk_trueMotherPdg", "motherPdg", "int"),
                      ("trk_trueIdx", "idx", "int"), ("trk_trueMotherIdx", "motherIdx", "int"),
@@ -181,7 +184,7 @@ ALEPH_VAR_COLLECTIONS = {
     "runinfo": ("RunInformation",),
 }
 # the branches of each block, as the --oldConverter warning names them
-ALEPH_VAR_BLOCK_BRANCHES = {"dEdx": "trk_dEdx_wires_*, trk_dEdx_pads_* and the leg dE/dx read from them",
+ALEPH_VAR_BLOCK_BRANCHES = {"dEdx": "trk_dEdx_wires_*, trk_dEdx_pads_* and the leg and pfcand dE/dx read from them",
                             "truth": "trk_dEdx_wiresQDEDXM_*, trk_true*, trk_mcNLinks",
                             "yv0": "n_yv0_event, yv0_*", "beamspot": "BeamSpotALEPH_*, LuminousRegion_*",
                             "runinfo": "EVT_Ebeam, EVT_Bz"}
@@ -242,8 +245,6 @@ class Analysis():
                             help='Skip the phi(1020)->K+K- finder (no phikk_* branches).')
         parser.add_argument('--noDstar', action='store_true',
                             help='Skip the D*+ -> D0(K pi) pi_slow finder (no dstar_* branches).')
-        parser.add_argument('--noDedxGate', action='store_true',
-                            help='accept every linked dE/dx measurement of the pfcand_dEdx_* block as valid, i.e. switch off the failed-leg omega sentinel gate; for converters that no longer copy omega into a failed leg.')
         parser.add_argument('--oldTrackSel', action='store_true',
                             help='baseline track selection without the minimum-TPC-hits and |z0| requirements, for the vertex fit and every finder (V0, secondary vertex, phi->KK, D*); also changes trk_member bit 9.')
         parser.add_argument('--oldPV', action='store_true',
@@ -251,7 +252,7 @@ class Analysis():
         parser.add_argument('--alephV0s', action='store_true',
                             help="write ALEPH's own V0 candidates (YV0V: n_yv0_event and the yv0_* branches); without it they are neither computed nor written and their converter collections are not required.")
         parser.add_argument('--oldConverter', action='store_true',
-                            help='accept an input of an older converter version, made before the dE/dx-hypothesis, V0-word, beam-spot and (MC) QDEDXM collections or the magnetic field in RunInformation existed: their branches and the dE/dx of the candidate legs are written as -999 placeholders instead of stopping.')
+                            help='accept an input of an older converter version, made before the dE/dx-hypothesis, V0-word, beam-spot and (MC) QDEDXM collections or the magnetic field in RunInformation existed: their branches and the dE/dx of the candidate legs and jet constituents are written as -999 placeholders instead of stopping.')
         # Parse additional arguments not known to the FCCAnalyses parsers
         # All command line arguments know to fccanalysis are provided in the
         # `cmdline_arg` dictionary.
@@ -392,9 +393,6 @@ class Analysis():
             self.include_paths.append("analyzer_phikk.h")
         if self.do_dstar:
             self.include_paths.append("analyzer_dstar.h")
-
-        # dE/dx validity gate of the pfcand block
-        self.dedx_gate = "false" if self.ana_args.noDedxGate else "true"
 
         # #submit to batch if requested:
         # self.run_batch = self.ana_args.batch # no longer supported
@@ -1118,55 +1116,12 @@ class Analysis():
         df = df.Define(f"jet_ngamma", f"JetConstituentsUtils::count_type(pfcand_isGamma)") 
         df = df.Define(f"jet_nnhad",  f"JetConstituentsUtils::count_type(pfcand_isNeutralHad)")
 
-        # df = df.Define("dEdxPadsValue" , "dEdxPads.dQdx.value")
-        # df = df.Define("dEdxPadsError" , "dEdxPads.dQdx.error")
-        # df = df.Define("dEdxWiresValue" , "dEdxWires.dQdx.value")
-        # df = df.Define("dEdxWiresError" , "dEdxPads.dQdx.error")
-
-        # df = df.Define("jet_constituents_dEdx_pads_objs", "AlephSelection::build_constituents_dEdx()(RecoParticles, _RecoParticles_tracks.index, dEdxPads, _dEdxPads_track.index, _jetc)" )
-        # df = df.Define("pfcand_dEdx_pads_type", "AlephSelection::get_dEdx_type(jet_constituents_dEdx_pads_objs)")
-        # df = df.Define("pfcand_dEdx_pads_value", "AlephSelection::get_dEdx_value(jet_constituents_dEdx_pads_objs)")
-        # df = df.Define("pfcand_dEdx_pads_error", "AlephSelection::get_dEdx_error(jet_constituents_dEdx_pads_objs)")
-
-        # df = df.Define("jet_constituents_dEdx_wires_objs", "AlephSelection::build_constituents_dEdx()(RecoParticles, _RecoParticles_tracks.index, dEdxWires, _dEdxWires_track.index, _jetc)" )
-        # df = df.Define("pfcand_dEdx_wires_type", "AlephSelection::get_dEdx_type(jet_constituents_dEdx_wires_objs)")
-        # df = df.Define("pfcand_dEdx_wires_value", "AlephSelection::get_dEdx_value(jet_constituents_dEdx_wires_objs)")
-        # df = df.Define("pfcand_dEdx_wires_error", "AlephSelection::get_dEdx_error(jet_constituents_dEdx_wires_objs)")
-
-        # Get the dE/dx value and matching PID hypothesis pvalue from Bethe-Bloch fits for the jet constituents
-        ## Pads
-        df = df.Define("jet_constituents_dEdx_PIDhypo_pads_result", f"AlephSelection::build_constituents_dEdx_PIDhypo()(AnalysisParticles, _AnalysisParticles_tracks, dEdxPads, _dEdxPads_track.index, _jetc, Tracks, _Tracks_trackStates, false, {self.dedx_gate})" )
-        df = df.Define("jet_constituents_dEdx_pads_objs", "jet_constituents_dEdx_PIDhypo_pads_result.dedx_constituents")
-        df = df.Define("pfcand_dEdx_pads_type", "AlephSelection::get_dEdx_type(jet_constituents_dEdx_pads_objs)")
-        df = df.Define("pfcand_dEdx_pads_value", "AlephSelection::get_dEdx_value(jet_constituents_dEdx_pads_objs)")
-        df = df.Define("pfcand_dEdx_pads_error", "AlephSelection::get_dEdx_error(jet_constituents_dEdx_pads_objs)")
-
-        ## extract the pvalues for different PID hyptheses based on Bethe-Bloch dE/dx vs p fits - order: ["e", "mu", "pi", "K", "p"]
-        df = df.Define("jet_constituents_PID_pvals_pads", "jet_constituents_dEdx_PIDhypo_pads_result.pid_array_constituents")
-        df = df.Define("pfcand_PID_pval_pads_ele", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_pads, 0)")
-        df = df.Define("pfcand_PID_pval_pads_mu", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_pads, 1)")
-        df = df.Define("pfcand_PID_pval_pads_pi", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_pads, 2)")
-        df = df.Define("pfcand_PID_pval_pads_kaon", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_pads, 3)")
-        df = df.Define("pfcand_PID_pval_pads_proton", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_pads, 4)")
-
-        ## Wires
-        df = df.Define("jet_constituents_dEdx_PIDhypo_wires_result", f"AlephSelection::build_constituents_dEdx_PIDhypo()(AnalysisParticles, _AnalysisParticles_tracks, dEdxWires, _dEdxWires_track.index, _jetc, Tracks, _Tracks_trackStates, true, {self.dedx_gate})" )
-        df = df.Define("jet_constituents_dEdx_wires_objs", "jet_constituents_dEdx_PIDhypo_wires_result.dedx_constituents")
-        df = df.Define("pfcand_dEdx_wires_type", "AlephSelection::get_dEdx_type(jet_constituents_dEdx_wires_objs)")
-        df = df.Define("pfcand_dEdx_wires_value", "AlephSelection::get_dEdx_value(jet_constituents_dEdx_wires_objs)")
-        df = df.Define("pfcand_dEdx_wires_error", "AlephSelection::get_dEdx_error(jet_constituents_dEdx_wires_objs)")
-
-        ## extract the pvalues for different PID hyptheses based on Bethe-Bloch dE/dx vs p fits - order: ["e", "mu", "pi", "K", "p"]
-        df = df.Define("jet_constituents_PID_pvals_wires", "jet_constituents_dEdx_PIDhypo_wires_result.pid_array_constituents")
-        df = df.Define("pfcand_PID_pval_wires_ele", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_wires, 0)")
-        df = df.Define("pfcand_PID_pval_wires_mu", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_wires, 1)")
-        df = df.Define("pfcand_PID_pval_wires_pi", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_wires, 2)")
-        df = df.Define("pfcand_PID_pval_wires_kaon", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_wires, 3)")
-        df = df.Define("pfcand_PID_pval_wires_proton", "AlephSelection::get_PID_pvalue(jet_constituents_PID_pvals_wires, 4)")
+        # jet-constituent dE/dx: the trk_dEdx_{wires,pads}_* entries of the constituent's track
+        for _b, _src in PFCAND_DEDX_DEFINES:
+            df = df.Define(_b, f"FCCAnalyses::AlephVars::atTrack({_src}, pfcand_trackIdx)")
 
         #for debug:
         df = df.Define("pfcand_dEdx_len", "pfcand_dEdx_wires_value[0].size()")
-        df = df.Define("pfcand_pval_ele_len", "pfcand_PID_pval_wires_ele[0].size()")
         df = df.Define("pfcand_E_len", "pfcand_e[0].size()")
 
 
@@ -1223,7 +1178,7 @@ class Analysis():
 
         return module_branches + [
             #DEBUG
-            "pfcand_dEdx_len", "pfcand_E_len", "pfcand_pval_ele_len",
+            "pfcand_dEdx_len", "pfcand_E_len",
 
             # Event variables
             "event_class",
@@ -1432,25 +1387,8 @@ class Analysis():
             "pfcand_btagJetDistVal", 
             "pfcand_btagJetDistSig",
 
-            # jet constituent PID 
-            "pfcand_dEdx_pads_type", 
-            "pfcand_dEdx_pads_value", 
-            "pfcand_dEdx_pads_error",
-            "pfcand_PID_pval_pads_ele",
-            "pfcand_PID_pval_pads_mu",
-            "pfcand_PID_pval_pads_pi",
-            "pfcand_PID_pval_pads_kaon",
-            "pfcand_PID_pval_pads_proton",
-
-            "pfcand_dEdx_wires_type", 
-            "pfcand_dEdx_wires_value", 
-            "pfcand_dEdx_wires_error",
-            "pfcand_PID_pval_wires_ele",
-            "pfcand_PID_pval_wires_mu",
-            "pfcand_PID_pval_wires_pi",
-            "pfcand_PID_pval_wires_kaon",
-            "pfcand_PID_pval_wires_proton",
-
+            # jet constituent dE/dx
+            *(_b for _b, _ in PFCAND_DEDX_DEFINES),
 
             "EVT_Thrust_Mag",
             "EVT_Thrust_X",
@@ -1460,7 +1398,6 @@ class Analysis():
             "EVT_Evis",
             
             # to check if needed still? 
-            # "dEdxPadsValue", "dEdxPadsError", "dEdxWiresValue", "dEdxWiresError",
             # #"Bz",
 
                 
