@@ -308,6 +308,9 @@ Per D* entry (`n_dstar_event` entries). Some branches describe the D*, others th
 | `dstar_dpvSig` | as `phikk_dpvSig` (full covariances), for the D⁰ vertex | — | −1 (singular covariance, or the quadratic form ≤ 0 or not finite) |
 | `dstar_cosPoint` | cosine between the **D⁰** momentum (not `dstar_p`) and the flight direction D⁰ vertex − primary vertex | — | −99 (zero flight length) |
 | `dstar_cosThetaStar` | cosine of the kaon direction in the D⁰ rest frame w.r.t. the D⁰ momentum direction in the lab | — | — |
+| `dstar_d0_px/py/pz` | **D⁰** momentum: K plus π momentum at the fitted D⁰ vertex | GeV | — |
+| `dstar_L`, `dstar_sigL` | signed D⁰ decay length (D⁰ vertex − primary vertex) · p̂(D⁰), and its uncertainty: D⁰-vertex and primary-vertex position covariances summed and projected on p̂(D⁰) (treated as independent, see `phikk_dpvSig`). The proper decay length is `dstar_L` · m_D⁰ / p(D⁰) | cm | `dstar_sigL` −1 (projected variance ≤ 0 or not finite) |
+| `dstar_Lxy`, `dstar_sigLxy` | the same in the transverse plane, along the D⁰ transverse momentum | cm | −99 / −1 (zero transverse momentum); `dstar_sigLxy` also −1 as `dstar_sigL` |
 | `dstar_rs` | 1 = right-sign: the slow pion has the charge of the pion leg | — | — |
 | `dstar_loose`, `dstar_tight` | working-point labels, see above | — | — |
 | `dstar_d0idx` | index of the parent D⁰ candidate in the internal list | — | — |
