@@ -19,7 +19,8 @@ The events kept are stage1's: on data the runs of the run list and event class
 --MCflavour, as stage1; of any flavour without it), and in both at least two
 jets. The ks_* entries then equal stage1's v0n_* entries at v0n_pdg == 310 &&
 v0n_tight == 1, event by event, for stage1 run with its default reconstruction
-options (in particular without --oldPV and --oldTrackSel).
+options (in particular without --oldPV and --oldTrackSel), except the daughter
+dE/dx: this script reads dEdxWires, stage1's legs read dEdxWiresPID.
 
 Reconstruction chain of stage1's default, every Define written out; the
 constants are the ones stage1 uses, named from aleph_units.h (field) and

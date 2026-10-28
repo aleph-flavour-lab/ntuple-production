@@ -14,14 +14,6 @@ V0_LEGACY_LOOSE_MASS_WINDOW = "true"
 V0_LEGACY_DR_PAIR_CUT = "-1."   # dR preselection on track pairs (<= 0 disables)
 V0_LEGACY_EXCLUSIVE_TRACKS = "true"  # skips used tracks, except that a booked pair's first track keeps pairing: tracks can be shared
 
-# Per-daughter dE/dx, joined through <prefix>_origIdx and STORED for the
-# calibration, never selected on: the collections to read, in written order.
-DEDX_COLLS = (("pads", "dEdxPads"), ("wires", "dEdxWires"))
-DEDX_LEG_DEFINES = tuple(
-    (f"dEdx_{_d}_{_q}",
-     "FCCAnalyses::AlephV0New::trackQuantityByIndex({pfx}_origIdx, "
-     f"{_c}.dQdx.{_q}, dedxJoin_{_d})")
-    for _d, _c in DEDX_COLLS for _q in ("value", "error"))
 # tri-state particle-flow label (see legIsChargedHad) joined onto every
 # candidate leg through its origIdx
 LEG_PID_DEFINES = (
@@ -150,6 +142,13 @@ TRK_DEDX_MEMBERS = (("value", "value"), ("nSamples", "nSamples"), ("trackLength"
     (f"{_q}_{_h}", f"{_q}[{_k}]") for _k, _h in enumerate(DEDX_HYPOS) for _q in ("expected", "sigma", "pull"))
 TRK_DEDX_QDEDXM_MEMBERS = tuple(m for m in TRK_DEDX_MEMBERS if m[0] not in ("nSamples", "trackLength"))
 TRK_DEDX_INT_MEMBERS = ("errorCode",)   # must match the RVec<int> members of AlephVars::TrackDedx
+# dE/dx of a candidate leg or a jet constituent: the value, nSamples and pulls of its track
+LEG_DEDX_MEMBERS = tuple(m for m in TRK_DEDX_MEMBERS if m[0] in ("value", "nSamples") or m[0].startswith("pull_"))
+# Per-daughter dE/dx: the trk_dEdx_{wires,pads}_* entries at <prefix>_origIdx, STORED for the
+# calibration, never selected on
+DEDX_LEG_DEFINES = tuple(
+    (f"dEdx_{_d}_{_b}", f"FCCAnalyses::AlephVars::atTrack(trk_dEdx_{_d}_{_b}, {{pfx}}_origIdx)")
+    for _d, _, _ in TRK_DEDX_DETS for _b, _ in LEG_DEDX_MEMBERS)
 # best-match truth per track: (branch, member of AlephVars::TrackTruth, type)
 TRK_TRUTH_MEMBERS = (("trk_truePdg", "pdg", "int"), ("trk_trueMotherPdg", "motherPdg", "int"),
                      ("trk_trueIdx", "idx", "int"), ("trk_trueMotherIdx", "motherIdx", "int"),
@@ -182,7 +181,7 @@ ALEPH_VAR_COLLECTIONS = {
     "runinfo": ("RunInformation",),
 }
 # the branches of each block, as the --oldConverter warning names them
-ALEPH_VAR_BLOCK_BRANCHES = {"dEdx": "trk_dEdx_wires_*, trk_dEdx_pads_*",
+ALEPH_VAR_BLOCK_BRANCHES = {"dEdx": "trk_dEdx_wires_*, trk_dEdx_pads_* and the leg dE/dx read from them",
                             "truth": "trk_dEdx_wiresQDEDXM_*, trk_true*, trk_mcNLinks",
                             "yv0": "n_yv0_event, yv0_*", "beamspot": "BeamSpotALEPH_*, LuminousRegion_*",
                             "runinfo": "EVT_Ebeam, EVT_Bz"}
@@ -244,7 +243,7 @@ class Analysis():
         parser.add_argument('--noDstar', action='store_true',
                             help='Skip the D*+ -> D0(K pi) pi_slow finder (no dstar_* branches).')
         parser.add_argument('--noDedxGate', action='store_true',
-                            help='accept every linked dE/dx measurement as valid, i.e. switch off the failed-leg omega sentinel gate; for converters that no longer copy omega into a failed leg.')
+                            help='accept every linked dE/dx measurement of the pfcand_dEdx_* block as valid, i.e. switch off the failed-leg omega sentinel gate; for converters that no longer copy omega into a failed leg.')
         parser.add_argument('--oldTrackSel', action='store_true',
                             help='baseline track selection without the minimum-TPC-hits and |z0| requirements, for the vertex fit and every finder (V0, secondary vertex, phi->KK, D*); also changes trk_member bit 9.')
         parser.add_argument('--oldPV', action='store_true',
@@ -252,7 +251,7 @@ class Analysis():
         parser.add_argument('--alephV0s', action='store_true',
                             help="write ALEPH's own V0 candidates (YV0V: n_yv0_event and the yv0_* branches); without it they are neither computed nor written and their converter collections are not required.")
         parser.add_argument('--oldConverter', action='store_true',
-                            help='accept an input of an older converter version, made before the dE/dx-hypothesis, V0-word, beam-spot and (MC) QDEDXM collections or the magnetic field in RunInformation existed: their branches are written as -999 placeholders instead of stopping.')
+                            help='accept an input of an older converter version, made before the dE/dx-hypothesis, V0-word, beam-spot and (MC) QDEDXM collections or the magnetic field in RunInformation existed: their branches and the dE/dx of the candidate legs are written as -999 placeholders instead of stopping.')
         # Parse additional arguments not known to the FCCAnalyses parsers
         # All command line arguments know to fccanalysis are provided in the
         # `cmdline_arg` dictionary.
@@ -394,7 +393,7 @@ class Analysis():
         if self.do_dstar:
             self.include_paths.append("analyzer_dstar.h")
 
-        # dE/dx validity gate, shared by the pfcand block and the candidate legs
+        # dE/dx validity gate of the pfcand block
         self.dedx_gate = "false" if self.ana_args.noDedxGate else "true"
 
         # #submit to batch if requested:
@@ -842,16 +841,15 @@ class Analysis():
         df = df.Define("v0_dy",  "FCCAnalyses::AlephSelection::get_dy_SV_jets(v0_jets, PrimaryVertexP3)")
         df = df.Define("v0_dz",  "FCCAnalyses::AlephSelection::get_dz_SV_jets(v0_jets, PrimaryVertexP3)")
 
-        # joins feeding the candidate-leg branches below, built once per event:
-        # track -> RecoParticlesNoLumiCal index for the per-leg PF label, and track ->
-        # dE/dx measurement index, where the shared validity gate is applied so
-        # that a failed leg reads -1 in both the value and the error branch
+        ############################################# ALEPH's own reconstruction, as converted ################################
+        # per-track dE/dx hypotheses and best-match truth, beam spot, run information, YV0V V0s with --alephV0s
+        # (no selection); the candidate legs below read their dE/dx from the per-track arrays
+        df = self._define_aleph_vars(df)
+
+        # track -> RecoParticlesNoLumiCal index for the per-leg PF label, built once per event
         if self.do_v0new or self.do_phikk or self.do_dstar:
             df = df.Define("rpOfTrack",
                            "FCCAnalyses::AlephTrkAux::rpIndexByTrack(RecoParticlesNoLumiCal, _RecoParticlesNoLumiCal_tracks, Tracks.size())")
-            for _det, _coll in DEDX_COLLS:
-                df = df.Define(f"dedxJoin_{_det}",
-                               f"FCCAnalyses::AlephV0New::dedxIndexByTrack({_coll}.dQdx.value, {_coll}.dQdx.error, _{_coll}_track.index, Tracks, _Tracks_trackStates, {self.dedx_gate})")
 
         ############################################# Standalone two-tier V0 module ###########################################
         if self.do_v0new:
@@ -985,11 +983,6 @@ class Analysis():
                        f"{_svn}, {_v0}, {_phi}, {_ds})")
         df = df.Define("trk_member", "trkTags.member")
         df = df.Define("trk_nCand",  "trkTags.nCand")
-
-        ############################################# ALEPH's own reconstruction, as converted ################################
-        # per-track dE/dx hypotheses and best-match truth, beam spot, run information, YV0V V0s with --alephV0s
-        # (no selection)
-        df = self._define_aleph_vars(df)
 
         ############################################# Particle Flow Level Variables #######################################################
         df = df.Define("pfcand_isMu",     "AlephSelection::get_isType(jetConstitutentsTypes,2)")
