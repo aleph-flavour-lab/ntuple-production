@@ -15,6 +15,7 @@ constexpr double kEBeam = 45.6;
 // PDG 2024 central values [GeV]: the single source for every analyzer mass.
 // The charged-pion constant cannot be called M_PI, that name is a <cmath> macro.
 namespace AlephMasses {
+constexpr double kElectron = 0.00051099895;
 constexpr double kPiCh   = 0.13957039;
 constexpr double kK      = 0.493677;
 constexpr double kProton = 0.93827208;

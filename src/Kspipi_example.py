@@ -1,12 +1,16 @@
-"""Tight Ks -> pi+ pi- from the V0 module: the two daughter tracks, their
-momentum, dE/dx and (on MC) their nature. A standalone fccanalysis script with
-the structure of stage1 (class Analysis: __init__ / analyzers / output) that
-carries only the reconstruction the Ks block needs; nothing is imported from
-stage1. Input and output are given on the command line (-i / -o, both
-required); run from this directory, the headers are resolved relative to it:
+"""Tight Ks -> pi+ pi- example. Finds the tight Ks candidates of stage1's V0
+module and writes, per Ks, its momentum, vertex and flight, and per daughter
+track its kinematics, its dE/dx with ALPHA's particle hypotheses and (on MC) its
+truth. Run from this directory (src/), on data and on MC:
 
-    fccanalysis run Kspipi_example.py -i <edm4hep.root> -o <out.root> [-j 16]
-    fccanalysis run Kspipi_example.py -i <edm4hep.root> -o <out.root> -- --doData
+    fccanalysis run Kspipi_example.py -i <data.root> -o <out.root> -j 16 -- --doData
+    fccanalysis run Kspipi_example.py -i <mc.root> -o <out.root> -j 16
+
+The input is an EDM4hep file of a converter version that writes ALPHA's dE/dx
+collections (dEdxWiresPID, dEdxPadsPID; on MC also dEdxWiresQDEDXMPID,
+dEdxWiresQDEDXMMCLink, trackMCLink and the MCParticles parents). An input
+without them (an older conversion) stops with an error naming them, before
+any event is read.
 
 Options after `--`: --doData (no truth branches, data beam spot), --MCflavour N
 (MC only: keep events of one primary quark flavour, 1-5 = d u s c b, default
@@ -17,43 +21,112 @@ only). An unknown option is an error.
 The events kept are stage1's: on data the runs of the run list and event class
 16, on MC the class-16 events with a primary quark (of flavour N with
 --MCflavour, as stage1; of any flavour without it), and in both at least two
-jets. The ks_* entries then equal stage1's v0n_* entries at v0n_pdg == 310 &&
-v0n_tight == 1, event by event, for stage1 run with its default reconstruction
-options (in particular without --oldPV and --oldTrackSel).
+jets. For stage1 run with its default reconstruction options (in particular
+without --oldPV and --oldTrackSel), event by event: the Ks candidate branches
+and ks_trk{1,2}_{origIdx,q,p,nTPC,isChargedHad} equal stage1's v0n_* entries at
+v0n_pdg == 310 && v0n_tight == 1 (ks_p is the magnitude of v0n_px, v0n_py,
+v0n_pz), and the daughters' dE/dx _value, _nSamples, _expected_<h>, _sigma_<h>,
+_pull_<h> and truth branches equal stage1's per-track trk_* branches at their
+origIdx. ks_trk{1,2}_costheta and ks_trk{1,2}_phi have no stage1 counterpart.
+
+Output branches. event_number, run_number and n_ks have one value per event,
+every other branch one entry per tight Ks of the event. trk1 = the higher-
+momentum daughter, trk2 = the other; h = ele, mu, pi, kaon, proton. Unit in [],
+value when undefined in (). The dE/dx and truth branches are also -999 for a
+daughter without a track (origIdx -1).
+  Event
+    event_number, run_number           event and run number
+    n_ks                               number of tight Ks in the event
+  Ks candidate
+    ks_invM                            mass under the pi+ pi- hypothesis [GeV]
+    ks_p, ks_px, ks_py, ks_pz          summed daughter momentum at the fitted vertex [GeV]
+    ks_vx, ks_vy, ks_vz                fitted vertex position [cm]
+    ks_dxyz, ks_Lxy                    3D / transverse flight length from the primary vertex [cm] (-1)
+    ks_cosPointing                     cosine between flight direction and momentum (-2)
+    ks_alpha                           Armenteros-Podolanski alpha, positive daughter first (-99)
+    ks_qt                              Armenteros-Podolanski qT [GeV]; 0 for a vanishing Ks momentum
+    ks_chi2                            vertex-fit chi2; one degree of freedom for two tracks
+  Daughter kinematics
+    ks_trk{1,2}_origIdx                index of the daughter track in Tracks (-1)
+    ks_trk{1,2}_q                      charge [e] (0)
+    ks_trk{1,2}_p                      momentum magnitude at the fitted vertex [GeV] (-1)
+    ks_trk{1,2}_costheta, _phi         polar-angle cosine and azimuth [rad] of that momentum (-99)
+    ks_trk{1,2}_nTPC                   TPC hits of the track (-1)
+    ks_trk{1,2}_isChargedHad           1 = the track's particle is a charged hadron (energy-flow
+                                       type 0, pion assumed); 0 = another type: electron or muon
+                                       (flagged only above about 1 GeV; the electron identification
+                                       uses dE/dx, so do not select on it in a dE/dx study) or a
+                                       track of a V0 found by ALEPH's YV0V (type 3: about 10-40 % of
+                                       the tight-Ks daughters, decreasing with momentum); -1 = no
+                                       linked reconstructed particle of energy-flow type 0 to 5.
+                                       Fractions and threshold measured on one 1994 data and one
+                                       MC file.
+  Daughter dE/dx, normalised to about 1 for a minimum-ionising particle; -999 = not available
+    ks_trk{1,2}_dEdx_{wires,pads}_...
+                                       TPC wires (dEdxWiresPID, ALPHA's QDEDX) / pads (dEdxPadsPID, QPADX):
+      _value, _nSamples                measured dE/dx and its number of samples (-999)
+      _expected_<h>, _sigma_<h>        ALPHA's expected dE/dx and resolution for hypothesis h,
+                                       momentum error included (-999; also for a hypothesis ALPHA
+                                       cannot evaluate, error code 5: low-momentum kaons and
+                                       protons, mostly on the pads, even when _value is valid)
+      _pull_<h>                        (value - expected_<h>) / sigma_<h> (-999, also when
+                                       expected_<h> is -999 or sigma_<h> <= 0)
+    ks_trk{1,2}_dEdx_wiresQDEDXM_{value,expected_<h>,sigma_<h>,pull_<h>}
+                                       MC only: the same from ALPHA's parametrised simulation QDEDXM
+                                       (dEdxWiresQDEDXMPID; -999, also in an event without the ALPHA
+                                       MC banks)
+  MC truth (PDG codes: +211 = pi+, but +11 = e-)
+    ks_trk{1,2}_truePdg                ALPHA's best-match MC particle of the track (KBESTM); 0 = none,
+                                       -999 = event without the ALPHA MC banks
+    ks_trk{1,2}_trueMotherPdg          its first parent, 310 for the daughter of a true Ks; 0 = no
+                                       best match or no parent, -999 as truePdg
+
+About the dE/dx. On MC with a TPC simulation of version 216 or later (300 in
+the MC checked for the converter's documentation) dEdxWiresPID already holds
+the full-simulation dE/dx that ALPHA selects; QDEDXM is provided for
+comparison. For MC runs up to 2000 (the rule of the converter's README; the
+1994 MC files this example was tested on have runs below 2000) QDEDXM draws a
+Gaussian around the expected dE/dx of the best-match particle, with the
+constants of data run 16001, and its expected_<h> and sigma_<h> have no
+momentum-error term; above run 2000 it returns the measured dE/dx. The dE/dx
+branches have the names of stage1's per-track trk_dEdx_* branches, with the
+prefix ks_trk{1,2}_ instead of trk_. stage1's V0-leg branches
+v0n_trk{1,2}_dEdx_{wires,pads}_{value,error} are different: they read the
+dEdxWires / dEdxPads collections of a dummy hypothesis. Their value equals
+ks_trk{1,2}_dEdx_{wires,pads}_value where both are valid (measured on one 1994
+data and one MC file: every tight-Ks daughter), but their error is ALPHA's
+resolution for a particle of mass 1 GeV and charge 1, close to sigma_proton,
+and the pads measurements below about 0.15-0.2 GeV in 1994 are lost there
+(kept in dEdxPadsPID).
 
 Reconstruction chain of stage1's default, every Define written out; the
 constants are the ones stage1 uses, named from aleph_units.h (field) and
 analyzer_pvnew.h (primary-vertex pre-selection and fit):
     event filter -> track selection -> beam spot -> primary vertex
-    -> secondary tracks -> dE/dx join (wires) -> [MC] track -> generator-particle links
+    -> secondary tracks -> track -> particle-flow particle join
     -> V0 module, run only when the primary vertex is good (pv_good):
     V0sNew_event      = AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, Bz)   one fit, loose superset
     V0sNewTight_event = AlephV0New::tightV0s(V0sNew_event)   subset copy, no refit
     Ks_event          = AlephV0New::getKs(V0sNewTight_event)
     Lambda_event      = AlephV0New::getLambda(V0sNewTight_event)
 All four are copies of the same fitted candidates; every cand* helper accepts
-any of them (getKs(V0sNew_event) would be the loose Ks). Per daughter, leg 0 =
-trk1 = the higher-momentum daughter, leg 1 = trk2:
+any of them (getKs(V0sNew_event) would be the loose Ks; Lambda_event the tight
+Lambdas). The candidate branches use stage1's v0n_* helpers (candPcomp,
+candVtxPos, candDxyz, candLxy, candCosPointing, candChi2, candAlpha, candQt).
+Per daughter (leg 0 = trk1, leg 1 = trk2):
     candDaughterOrigIdx(coll, sec2origIdx, leg)             index into Tracks
-    candDaughterCharge(coll, SecondaryTracks_looseBS, leg)  physical charge
-    candDaughterP(coll, leg)                                 |p| at the fitted vertex [GeV]
-    trackQuantityByIndex(origIdx, dEdxWires.dQdx.value, dedxJoin_wires)
-        wires dE/dx of the track through the per-event join dedxJoin_wires
-        (Tracks index -> valid measurement index), -1 = no valid measurement;
-        pads: the same with dEdxPads and a dedxJoin_pads built alike
-    trackTruePdg(origIdx, trackToMCs, MCParticles)          MC only: PDG code of the
-        generator particle linked to the track (211 pion, 321 kaon, 2212 proton,
-        11 electron, 13 muon; PDG sign convention: +211 = pi+ but +11 = e-;
-        0 = no link). A track links to every MC particle that left at least one
-        hit on it, in the order the hits are met along the track; the converter
-        leaves every link weight at 1.0, so the first link is taken. About 9% of
-        linked tracks have several links, and for ~1% the first is not the
-        particle that best matches the track momentum (mostly pi/K -> mu decays
-        in flight, where the first link is usually the parent).
-
-Output: event_number, run_number and a flat ks_* block, one entry per tight Ks:
-n_ks, ks_invM, ks_p, ks_trk{1,2}_{origIdx,q,p,dEdx_wires_value,dEdx_wires_error}
-and on MC ks_trk{1,2}_truePdg.
+    candDaughterCharge(coll, SecondaryTracks_looseBS, leg)  sign of omega of the secondary track state
+    candDaughterP / candDaughterCosTheta / candDaughterPhi(coll, leg)
+                                                            fitted momentum at the V0 vertex
+    subdetHits(origIdx, Tracks.subdetectorHitNumbers_begin, Tracks.subdetectorHitNumbers_end,
+               _Tracks_subdetectorHitNumbers, 2)            TPC hits
+    legIsChargedHad(origIdx, rpOfTrack, ParticleIDNoLumiCal)  rpOfTrack: Tracks index ->
+        RecoParticlesNoLumiCal index
+    AlephVars::trackDedx / trackBestMatchTruth (analyzer_alephvars.h): arrays over
+        Tracks that a leg reads at origIdx (ROOT::VecOps::Take)
+    Other per-track quantities are reached the same way through origIdx, e.g. subdetHits
+    with component 0 (VDET) or 1 (ITC) hits, or trackChi2Ndf(origIdx, Tracks.chi2,
+    Tracks.ndf) (analyzer_trkaux.h).
 """
 import os
 import sys
@@ -66,6 +139,13 @@ DATA_CLASS_BIT = 16         # event class kept on data (as in stage1)
 MC_FLAVOURS = {1: "dd", 2: "uu", 3: "ss", 4: "cc", 5: "bb"}   # --MCflavour values (as in stage1)
 # per-run beam-spot positions of the data
 BEAMSPOT_JSON = "/eos/experiment/fcc/ee/analyses/case-studies/aleph/utils/beamspot_position_data/beamspot.json"
+# ALPHA dE/dx hypotheses h, in the order of AlephVars in analyzer_alephvars.h (as in stage1)
+DEDX_HYPOS = ("ele", "mu", "pi", "kaon", "proton")
+# converter collections the dE/dx and truth branches read; the second set MC only (as in stage1)
+ALEPH_DEDX_COLLS = ("dEdxWiresPID", "_dEdxWiresPID_parameters", "dEdxPadsPID", "_dEdxPadsPID_parameters")
+ALEPH_TRUTH_COLLS = ("dEdxWiresQDEDXMPID", "_dEdxWiresQDEDXMPID_parameters", "_dEdxWiresQDEDXMMCLink_from",
+                     "_dEdxWiresQDEDXMMCLink_to", "_MCParticles_parents", "trackMCLink", "_trackMCLink_from",
+                     "_trackMCLink_to")
 
 
 class Analysis():
@@ -104,9 +184,18 @@ class Analysis():
         self.n_threads = 16      # -j on the command line overrides
 
         # aleph_units.h / analyzer_pvnew.h carry the constants named below
-        self.include_paths = ["aleph_units.h", "analyzer.h", "analyzer_pvnew.h", "analyzer_truth.h", "analyzer_trkaux.h", "analyzer_v0new.h"]
+        self.include_paths = ["aleph_units.h", "analyzer.h", "analyzer_pvnew.h", "analyzer_truth.h", "analyzer_trkaux.h", "analyzer_v0new.h", "analyzer_alephvars.h"]
 
     def analyzers(self, df):
+
+        # ---- converter collections of the dE/dx and truth branches ------------
+        # checked before any event is read: an input of an older converter lacks them
+        have = set(str(c) for c in df.GetColumnNames())
+        absent = [c for c in ALEPH_DEDX_COLLS + (() if self.ana_args.doData else ALEPH_TRUTH_COLLS) if c not in have]
+        if absent:
+            print(f"----> ERROR: the input lacks the converter collections {', '.join(absent)}: it comes from an "
+                  "older converter version; convert it again with a current one.")
+            sys.exit(1)
 
         # ---- event filter (stage1's) ------------------------------------------
         if self.ana_args.doData:
@@ -118,8 +207,12 @@ class Analysis():
             df = df.Filter("jetPID > 0" if self.ana_args.MCflavour is None else f"jetPID == {self.ana_args.MCflavour}")
         # at least two jets of the exclusive two-jet clustering of the analysis particles, filtered copies of
         # RecoParticles as in stage1: RecoParticlesNoLumiCal = energy-flow types 0 to kPFMaxAnalysisType,
-        # AnalysisParticles = those without the photons and neutral hadrons below kNeutralMinE
+        # AnalysisParticles = those without the photons and neutral hadrons below kNeutralMinE;
+        # RecoParticlesNoLumiCal also carries the per-leg particle-flow label below
         df = df.Define("RecoParticlesNoLumiCal_subset", "AlephSelection::filterParticles(RecoParticles, _RecoParticles_tracks.index, ParticleID, _ParticleID_particle.index, AlephSelection::isAnalysisType())")
+        df = df.Define("RecoParticlesNoLumiCal",         "RecoParticlesNoLumiCal_subset.particles")
+        df = df.Define("ParticleIDNoLumiCal",            "RecoParticlesNoLumiCal_subset.pid")
+        df = df.Define("_RecoParticlesNoLumiCal_tracks", "RecoParticlesNoLumiCal_subset.tracks")
         df = df.Define("AnalysisParticles", "AlephSelection::filterParticles(RecoParticlesNoLumiCal_subset, AlephSelection::notSoftNeutral(AlephSelection::kNeutralMinE)).particles")
         df = df.Define("pjetc", "JetClusteringUtils::set_pseudoJets(ReconstructedParticle::get_px(AnalysisParticles), ReconstructedParticle::get_py(AnalysisParticles), "
                                 "ReconstructedParticle::get_pz(AnalysisParticles), ReconstructedParticle::get_e(AnalysisParticles))")
@@ -174,16 +267,9 @@ class Analysis():
         df = df.Define("SecondaryTracks_looseBS", "VertexFitterSimple::get_NonPrimaryTracks(trackstates_selected_baseline_flipped, RecoedPrimaryTracks_looseBS)")
         df = df.Define("sec2origIdx", "FCCAnalyses::AlephTruth::secondaryToOriginalTrack(SecondaryTracks_looseBS, trackstates_selected_baseline_flipped, selBaselineOrigIdx)")
 
-        # ---- dE/dx join (wires) -----------------------------------------------
-        # Tracks index -> index of its valid wires measurement (-1 = none), built
-        # once per event; the last argument switches the validity gate on
-        # (a failed leg carries the track omega as value)
-        df = df.Define("dedxJoin_wires",
-                       "FCCAnalyses::AlephV0New::dedxIndexByTrack(dEdxWires.dQdx.value, dEdxWires.dQdx.error, _dEdxWires_track.index, Tracks, _Tracks_trackStates, true)")
-
-        # ---- MC: track -> generator-particle links ----------------------------
-        if not self.ana_args.doData:
-            df = df.Define("trackToMCs", "FCCAnalyses::AlephTruth::buildTrackToMCs(Tracks.size(), _trackMCLink_from, _trackMCLink_to)")
+        # ---- particle-flow join ------------------------------------------------
+        # Tracks index -> index of its particle in RecoParticlesNoLumiCal (-1 = none)
+        df = df.Define("rpOfTrack", "FCCAnalyses::AlephTrkAux::rpIndexByTrack(RecoParticlesNoLumiCal, _RecoParticlesNoLumiCal_tracks, Tracks.size())")
 
         # ---- V0 module --------------------------------------------------------
         df = df.Define("V0sNew_event",      "pv_good ? FCCAnalyses::AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, FCCAnalyses::AlephUnits::kBz) "
@@ -196,6 +282,21 @@ class Analysis():
         df = df.Define("n_ks",    "int(Ks_event.vtx.size())")
         df = df.Define("ks_invM", "Ks_event.invM")
         df = df.Define("ks_p",    "FCCAnalyses::AlephTruth::candP(Ks_event)")
+        # summed daughter momentum at the fitted vertex [GeV]
+        df = df.Define("ks_px",   "FCCAnalyses::AlephTruth::candPcomp(Ks_event, 0)")
+        df = df.Define("ks_py",   "FCCAnalyses::AlephTruth::candPcomp(Ks_event, 1)")
+        df = df.Define("ks_pz",   "FCCAnalyses::AlephTruth::candPcomp(Ks_event, 2)")
+        # fitted vertex position [cm], flight from the primary vertex and vertex-fit chi2 (as stage1's v0n_*)
+        df = df.Define("ks_vx",   "FCCAnalyses::AlephTruth::candVtxPos(Ks_event, 0)")
+        df = df.Define("ks_vy",   "FCCAnalyses::AlephTruth::candVtxPos(Ks_event, 1)")
+        df = df.Define("ks_vz",   "FCCAnalyses::AlephTruth::candVtxPos(Ks_event, 2)")
+        df = df.Define("ks_dxyz", "FCCAnalyses::AlephTruth::candDxyz(Ks_event, VertexObject_looseBS)")
+        df = df.Define("ks_Lxy",  "FCCAnalyses::AlephV0New::candLxy(Ks_event, VertexObject_looseBS)")
+        df = df.Define("ks_cosPointing", "FCCAnalyses::AlephTruth::candCosPointing(Ks_event, VertexObject_looseBS)")
+        df = df.Define("ks_chi2", "FCCAnalyses::AlephTruth::candChi2(Ks_event)")
+        # Armenteros-Podolanski alpha (positive daughter first) and qT [GeV]
+        df = df.Define("ks_alpha", "FCCAnalyses::AlephV0New::candAlpha(Ks_event, SecondaryTracks_looseBS)")
+        df = df.Define("ks_qt",    "FCCAnalyses::AlephV0New::candQt(Ks_event)")
 
         # ---- the two daughters of every tight Ks ------------------------------
         # trk1 = leg 0 = the higher-momentum daughter, trk2 = leg 1
@@ -205,24 +306,62 @@ class Analysis():
         df = df.Define("ks_trk2_q",       "FCCAnalyses::AlephV0New::candDaughterCharge(Ks_event, SecondaryTracks_looseBS, 1)")
         df = df.Define("ks_trk1_p",       "FCCAnalyses::AlephV0New::candDaughterP(Ks_event, 0)")
         df = df.Define("ks_trk2_p",       "FCCAnalyses::AlephV0New::candDaughterP(Ks_event, 1)")
-        # wires dE/dx of the daughter track, by its Tracks index through the join
-        df = df.Define("ks_trk1_dEdx_wires_value", "FCCAnalyses::AlephV0New::trackQuantityByIndex(ks_trk1_origIdx, dEdxWires.dQdx.value, dedxJoin_wires)")
-        df = df.Define("ks_trk1_dEdx_wires_error", "FCCAnalyses::AlephV0New::trackQuantityByIndex(ks_trk1_origIdx, dEdxWires.dQdx.error, dedxJoin_wires)")
-        df = df.Define("ks_trk2_dEdx_wires_value", "FCCAnalyses::AlephV0New::trackQuantityByIndex(ks_trk2_origIdx, dEdxWires.dQdx.value, dedxJoin_wires)")
-        df = df.Define("ks_trk2_dEdx_wires_error", "FCCAnalyses::AlephV0New::trackQuantityByIndex(ks_trk2_origIdx, dEdxWires.dQdx.error, dedxJoin_wires)")
-        # nature of the daughter (MC only): the generator particle behind the track
+        # polar-angle cosine and azimuth of the same fitted momentum
+        df = df.Define("ks_trk1_costheta", "FCCAnalyses::AlephV0New::candDaughterCosTheta(Ks_event, 0)")
+        df = df.Define("ks_trk2_costheta", "FCCAnalyses::AlephV0New::candDaughterCosTheta(Ks_event, 1)")
+        df = df.Define("ks_trk1_phi",      "FCCAnalyses::AlephV0New::candDaughterPhi(Ks_event, 0)")
+        df = df.Define("ks_trk2_phi",      "FCCAnalyses::AlephV0New::candDaughterPhi(Ks_event, 1)")
+        # TPC hits of the daughter track (-1 = no hit-number block)
+        df = df.Define("ks_trk1_nTPC", "FCCAnalyses::AlephTrkAux::subdetHits(ks_trk1_origIdx, Tracks.subdetectorHitNumbers_begin, Tracks.subdetectorHitNumbers_end, _Tracks_subdetectorHitNumbers, 2)")
+        df = df.Define("ks_trk2_nTPC", "FCCAnalyses::AlephTrkAux::subdetHits(ks_trk2_origIdx, Tracks.subdetectorHitNumbers_begin, Tracks.subdetectorHitNumbers_end, _Tracks_subdetectorHitNumbers, 2)")
+        # particle-flow label: 1 = charged hadron, 0 = another type, -1 = no linked particle of type 0 to 5
+        df = df.Define("ks_trk1_isChargedHad", "FCCAnalyses::AlephTrkAux::legIsChargedHad(ks_trk1_origIdx, rpOfTrack, ParticleIDNoLumiCal)")
+        df = df.Define("ks_trk2_isChargedHad", "FCCAnalyses::AlephTrkAux::legIsChargedHad(ks_trk2_origIdx, rpOfTrack, ParticleIDNoLumiCal)")
+
+        # ---- ALPHA dE/dx and best-match truth (converter collections) --------
+        # AlephVars::trackDedx / trackBestMatchTruth give arrays over the whole Tracks collection,
+        # as stage1's trk_dEdx_* / trk_truePdg / trk_trueMotherPdg; each leg reads its entry at origIdx.
+        # -999 (AlephVars::kNotAvailable) = not available, under the conditions listed in the docstring
+        AV = "FCCAnalyses::AlephVars"
+        self.aleph_branches = []
+        # (branch infix, as in stage1's trk_dEdx_<infix>_*; collection; parameter count; empty collection allowed)
+        dets = [("wires", "dEdxWiresPID", "kNParDedx", "false"),
+                ("pads", "dEdxPadsPID", "kNParDedx", "false")]
         if not self.ana_args.doData:
-            df = df.Define("ks_trk1_truePdg", "FCCAnalyses::AlephTruth::trackTruePdg(ks_trk1_origIdx, trackToMCs, MCParticles)")
-            df = df.Define("ks_trk2_truePdg", "FCCAnalyses::AlephTruth::trackTruePdg(ks_trk2_origIdx, trackToMCs, MCParticles)")
+            dets.append(("wiresQDEDXM", "dEdxWiresQDEDXMPID", "kNParQDEDXM", "true"))
+        for name, coll, npar, empty_ok in dets:
+            df = df.Define(f"trkDedx_{name}", f'{AV}::trackDedx({coll}, _{coll}_parameters, Tracks.size(), '
+                                              f'{AV}::{npar}, "{coll}", {empty_ok})')
+        # MC only: ALPHA's best-match MC particle of each track (KBESTM) and its first parent
+        if not self.ana_args.doData:
+            df = df.Define("trkBestMatch", f"{AV}::trackBestMatchTruth(Tracks.size(), dEdxWiresQDEDXMPID.empty(), "
+                                           "_dEdxWiresQDEDXMMCLink_from, _dEdxWiresQDEDXMMCLink_to, MCParticles, "
+                                           "_MCParticles_parents, _trackMCLink_from, _trackMCLink_to, "
+                                           "trackMCLink.weight)")
+        for t in ("trk1", "trk2"):
+            # the leg's Tracks index in the index type of Take; -1 becomes out of range (-999)
+            df = df.Define(f"_ks_{t}_take", f"ROOT::VecOps::RVec<std::size_t>(ks_{t}_origIdx.begin(), ks_{t}_origIdx.end())")
+            for name, _, _, _ in dets:
+                members = [("value", "value")] + ([("nSamples", "nSamples")] if name != "wiresQDEDXM" else []) + \
+                          [(f"{q}_{h}", f"{q}[{k}]") for k, h in enumerate(DEDX_HYPOS) for q in ("expected", "sigma")]
+                for b, m in members:
+                    self.aleph_branches.append(f"ks_{t}_dEdx_{name}_{b}")
+                    df = df.Define(self.aleph_branches[-1], f"ROOT::VecOps::Take(trkDedx_{name}.{m}, _ks_{t}_take, {AV}::kNotAvailable)")
+                for k, h in enumerate(DEDX_HYPOS):
+                    self.aleph_branches.append(f"ks_{t}_dEdx_{name}_pull_{h}")
+                    df = df.Define(self.aleph_branches[-1], f"ROOT::VecOps::Take(trkDedx_{name}.pull[{k}], _ks_{t}_take, {AV}::kNotAvailable)")
+            if not self.ana_args.doData:
+                for b, m in (("truePdg", "pdg"), ("trueMotherPdg", "motherPdg")):
+                    self.aleph_branches.append(f"ks_{t}_{b}")
+                    df = df.Define(self.aleph_branches[-1], f"ROOT::VecOps::Take(trkBestMatch.{m}, _ks_{t}_take, {AV}::kNotAvailableInt)")
         return df
 
     def output(self):
         branches = [
             "event_number", "run_number",
             "n_ks", "ks_invM", "ks_p",
-            "ks_trk1_origIdx", "ks_trk1_q", "ks_trk1_p", "ks_trk1_dEdx_wires_value", "ks_trk1_dEdx_wires_error",
-            "ks_trk2_origIdx", "ks_trk2_q", "ks_trk2_p", "ks_trk2_dEdx_wires_value", "ks_trk2_dEdx_wires_error",
+            "ks_px", "ks_py", "ks_pz", "ks_vx", "ks_vy", "ks_vz", "ks_dxyz", "ks_Lxy", "ks_cosPointing", "ks_chi2", "ks_alpha", "ks_qt",
+            "ks_trk1_origIdx", "ks_trk1_q", "ks_trk1_p", "ks_trk1_costheta", "ks_trk1_phi", "ks_trk1_nTPC", "ks_trk1_isChargedHad",
+            "ks_trk2_origIdx", "ks_trk2_q", "ks_trk2_p", "ks_trk2_costheta", "ks_trk2_phi", "ks_trk2_nTPC", "ks_trk2_isChargedHad",
         ]
-        if not self.ana_args.doData:
-            branches += ["ks_trk1_truePdg", "ks_trk2_truePdg"]
-        return branches
+        return branches + self.aleph_branches

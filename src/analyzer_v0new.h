@@ -801,6 +801,46 @@ inline RVec<float> candDaughterP(const VertexingUtils::FCCAnalysesV0& v0s,
   return out;
 }
 
+// Undefined value of the daughter angles, outside every valid range; the same
+// as for the Armenteros variables and the phi->KK / D* legs' costheta.
+constexpr float ANGLE_UNDEF = AlephTrkAux::kApUndef;
+
+// Polar-angle cosine of daughter k (0/1) at the fitted vertex, from the
+// momentum candDaughterP reads; legs in momentum order; ANGLE_UNDEF when the
+// daughter is unavailable.
+inline RVec<float> candDaughterCosTheta(const VertexingUtils::FCCAnalysesV0& v0s,
+                                        int k) {
+  RVec<float> out;
+  for (const auto& v : v0s.vtx) {
+    float c = ANGLE_UNDEF;
+    const int slot = legSlot(v, k);
+    if (slot < (int)v.updated_track_momentum_at_vertex.size()) {
+      const TVector3& p = v.updated_track_momentum_at_vertex[slot];
+      if (p.Mag() > 0.) c = p.Z() / p.Mag();
+    }
+    out.push_back(c);
+  }
+  return out;
+}
+
+// Azimuth of daughter k (0/1) at the fitted vertex [rad, -pi..pi], from the
+// momentum candDaughterP reads; legs in momentum order; ANGLE_UNDEF when the
+// daughter is unavailable.
+inline RVec<float> candDaughterPhi(const VertexingUtils::FCCAnalysesV0& v0s,
+                                   int k) {
+  RVec<float> out;
+  for (const auto& v : v0s.vtx) {
+    float phi = ANGLE_UNDEF;
+    const int slot = legSlot(v, k);
+    if (slot < (int)v.updated_track_momentum_at_vertex.size()) {
+      const TVector3& p = v.updated_track_momentum_at_vertex[slot];
+      if (p.Mag() > 0.) phi = p.Phi();
+    }
+    out.push_back(phi);
+  }
+  return out;
+}
+
 // Daughters of every candidate (0, 1 or 2) whose original track is also a
 // daughter of another stored candidate. Exclusive claiming makes this 0
 // everywhere, so a non-zero entry flags a broken claim.
