@@ -30,7 +30,7 @@ namespace AlephV0New {
 using ROOT::VecOps::RVec;
 using AlephTrkAux::apVars;
 using AlephTrkAux::candMomentum;
-using AlephTrkAux::fitTracksCm;
+using AlephTrkAux::fitV0PairCm;
 
 constexpr double m_pi_ = AlephMasses::kPiCh;
 constexpr double m_p_  = AlephMasses::kProton;
@@ -223,7 +223,9 @@ inline V0Sel evalV0Selection(double chi2, double dis, double cp, double pmag,
 // LOOSE tier, and tight candidates claim tracks first, so the tight flag selects
 // exactly the tight-only output. Returns candidates in claim order (tight block
 // first, chi2 ascending within a tier); pdgAbs = best hypothesis (310 or 3122),
-// invM its mass, tight = 1 for the tight tier.
+// invM its mass, tight = 1 for the tight tier. nVdet / nItc = VDET / ITC layers
+// hit per np_tracks entry (subdetHits, -1 = unknown): they bound the vertex
+// radius of each pair fit (fitV0PairCm, analyzer_trkaux.h).
 // ---------------------------------------------------------------------------
 
 // The module's candidate collection: the FCCAnalyses V0 collection (vertices,
@@ -236,10 +238,12 @@ struct V0Collection : VertexingUtils::FCCAnalysesV0 {
 inline V0Collection findV0s(
     const RVec<edm4hep::TrackState>& np_tracks,
     const VertexingUtils::FCCAnalysesVertex& PV,
-    double solenoidBz) {
+    double solenoidBz, const RVec<int>& nVdet, const RVec<int>& nItc) {
 
   V0Collection result;
   const int nTr = np_tracks.size();
+  if ((int)nVdet.size() != nTr || (int)nItc.size() != nTr)
+    throw std::invalid_argument("findV0s: hit counts not aligned with tracks");
   if (nTr < 2) return result;
 
   TVector3 pv(PV.vertex.position[0], PV.vertex.position[1], PV.vertex.position[2]);
@@ -261,7 +265,8 @@ inline V0Collection findV0s(
       if (np_tracks[i].omega * np_tracks[j].omega > 0) continue; // same charge
       tr_pair[1] = np_tracks[j];
 
-      auto v = fitTracksCm(tr_pair, np_tracks, solenoidBz);
+      auto v = fitV0PairCm(tr_pair, np_tracks, solenoidBz, nVdet[i], nItc[i],
+                           nVdet[j], nItc[j]);
       if (v.updated_track_momentum_at_vertex.size() != 2) continue;
       double chi2 = v.vertex.chi2; // normalised, ndf=1
 
