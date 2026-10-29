@@ -27,7 +27,8 @@ analyzer_pvnew.h (primary-vertex pre-selection and fit):
     event filter -> track selection -> beam spot -> primary vertex
     -> secondary tracks -> dE/dx join (wires) -> [MC] track -> generator-particle links
     -> V0 module, run only when the primary vertex is good (pv_good):
-    V0sNew_event      = AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, Bz)   one fit, loose superset
+    v0n_sec_nvdet / v0n_sec_nitc = VDET / ITC layers hit per secondary track (they bound the pair-fit vertex radius)
+    V0sNew_event      = AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, Bz, v0n_sec_nvdet, v0n_sec_nitc)   loose superset
     V0sNewTight_event = AlephV0New::tightV0s(V0sNew_event)   subset copy, no refit
     Ks_event          = AlephV0New::getKs(V0sNewTight_event)
     Lambda_event      = AlephV0New::getLambda(V0sNewTight_event)
@@ -186,7 +187,9 @@ class Analysis():
             df = df.Define("trackToMCs", "FCCAnalyses::AlephTruth::buildTrackToMCs(Tracks.size(), _trackMCLink_from, _trackMCLink_to)")
 
         # ---- V0 module --------------------------------------------------------
-        df = df.Define("V0sNew_event",      "pv_good ? FCCAnalyses::AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, FCCAnalyses::AlephUnits::kBz) "
+        for name, which in (("v0n_sec_nvdet", 0), ("v0n_sec_nitc", 1)):
+            df = df.Define(name, f"FCCAnalyses::AlephTrkAux::subdetHits(sec2origIdx, Tracks.subdetectorHitNumbers_begin, Tracks.subdetectorHitNumbers_end, _Tracks_subdetectorHitNumbers, {which})")
+        df = df.Define("V0sNew_event",      "pv_good ? FCCAnalyses::AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, FCCAnalyses::AlephUnits::kBz, v0n_sec_nvdet, v0n_sec_nitc) "
                                             ": FCCAnalyses::AlephV0New::V0Collection{}")
         df = df.Define("V0sNewTight_event", "FCCAnalyses::AlephV0New::tightV0s(V0sNew_event)")
         df = df.Define("Ks_event",          "FCCAnalyses::AlephV0New::getKs(V0sNewTight_event)")

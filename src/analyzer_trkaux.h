@@ -9,7 +9,9 @@
 */
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -22,6 +24,7 @@
 #include "FCCAnalyses/VertexingUtils.h"
 #include "FCCAnalyses/VertexFitterSimple.h"
 
+#include "aleph_reco_config.h"
 #include "aleph_units.h"
 
 namespace FCCAnalyses {
@@ -37,9 +40,10 @@ inline TVector3 perigeeMomentum(const edm4hep::TrackState& t, double Bz) {
   return TVector3(pt * std::cos(t.phi), pt * std::sin(t.phi), pt * t.tanLambda);
 }
 
-// The one vertex-fit entry point of every finder: fit `group` (alltracks passed
-// so reco_ind is filled), then undo the cm-as-mm homothety of the momenta,
-// which come out 10x too small, ONCE at the source.
+// The vertex-fit entry point of every finder (the V0 finder adds start points,
+// fitV0PairCm): fit `group` (alltracks passed so reco_ind is filled), then
+// undo the cm-as-mm homothety of the momenta, which come out 10x too small,
+// ONCE at the source.
 inline VertexingUtils::FCCAnalysesVertex fitTracksCm(
     const RVec<edm4hep::TrackState>& group,
     const RVec<edm4hep::TrackState>& alltracks, double Bz) {
@@ -47,6 +51,174 @@ inline VertexingUtils::FCCAnalysesVertex fitTracksCm(
       0, group, alltracks, false, 0., 0., 0., 0., 0., 0., Bz, false);
   for (auto& tp : v.updated_track_momentum_at_vertex) tp *= 10.;
   return v;
+}
+
+// fitTracksCm with each track's iteration started at the point of its helix
+// at transverse radius startR [cm] instead of at its perigee (Delphes
+// VertexFit::SetStartR). startR is capped just below the largest radius a
+// helix reaches, |D + 1/C| (D = d0, C = half the signed curvature); with
+// startR <= 0, or a helix with 1 + 2CD <= 0, this is fitTracksCm.
+inline VertexingUtils::FCCAnalysesVertex fitTracksCmFromR(
+    const RVec<edm4hep::TrackState>& group,
+    const RVec<edm4hep::TrackState>& alltracks, double Bz, double startR) {
+  const int Ntr = group.size();
+  if (Ntr <= 1 || !(startR > 0.)) return fitTracksCm(group, alltracks, Bz);
+  std::vector<TVectorD> par;
+  std::vector<TMatrixDSym> cov;
+  par.reserve(Ntr);
+  cov.reserve(Ntr);
+  double R = startR;
+  for (int i = 0; i < Ntr; ++i) {
+    edm4hep::TrackState t = group[i];
+    par.push_back(VertexingUtils::get_trackParam(t, true));
+    cov.push_back(VertexingUtils::get_trackCov(t, true));
+    const double D = par[i](0), C = par[i](2);
+    if (!(1. + 2. * C * D > 0.)) return fitTracksCm(group, alltracks, Bz);
+    R = std::min(R, std::abs(D + 1. / C) * (1. - 1e-12));
+  }
+  if (!(R > 0.)) return fitTracksCm(group, alltracks, Bz);
+  // the body of VertexFitter_Tk (no beam-spot constraint), plus SetStartR
+  std::vector<TVectorD*> pp;
+  std::vector<TMatrixDSym*> pc;
+  for (int i = 0; i < Ntr; ++i) {
+    pp.push_back(&par[i]);
+    pc.push_back(&cov[i]);
+  }
+  VertexFit fit(Ntr, pp.data(), pc.data());
+  fit.SetStartR(R);
+  const TVectorD x = fit.GetVtx();
+
+  VertexingUtils::FCCAnalysesVertex out;
+  out.ntracks = Ntr;
+  for (int i = 0; i < Ntr; ++i)
+    for (size_t j = 0; j < alltracks.size(); ++j)
+      if (VertexingUtils::compare_Tracks(group[i], alltracks[j])) {
+        out.reco_ind.push_back(j);
+        break;
+      }
+  edm4hep::VertexData& vtx = out.vertex;
+  vtx.position = edm4hep::Vector3f(x(0), x(1), x(2));
+  const float chi2 = fit.GetVtxChi2();
+  const float ndof = 2.0 * Ntr - 3.0;
+  vtx.chi2 = chi2 / ndof;
+  const TVectorD trkChi2 = fit.GetVtxChi2List();
+  for (int i = 0; i < Ntr; ++i) out.reco_chi2.push_back(trkChi2[i]);
+  const TMatrixDSym covX = fit.GetVtxCov();
+  const std::array<float, 6> covLower = {
+      float(covX(0, 0)), float(covX(1, 0)), float(covX(1, 1)),
+      float(covX(2, 0)), float(covX(2, 1)), float(covX(2, 2))};
+  vtx.covMatrix = covLower;
+  vtx.algorithmType = 1;
+  VertexMore more(&fit, true);
+  for (int i = 0; i < Ntr; ++i) {
+    out.updated_track_parameters.push_back(
+        VertexingUtils::Delphes2Edm4hep_TrackParam(fit.GetNewPar(i), true));
+    // same momentum as fitTracksCm: VertexMore's 2 T scaled to Bz, then x10
+    out.updated_track_momentum_at_vertex.push_back(
+        more.GetMomentum(i) * (Bz / 2.0) * 10.);
+  }
+  return out;
+}
+
+// Transverse radii [cm] at which the circles of the two tracks cross, the
+// smaller first; when the circles do not intersect (or touch), the one
+// radius of the midpoint of their closest approach. Empty for coincident
+// centres or non-finite input.
+inline RVec<double> circleCrossingRadii(const edm4hep::TrackState& t1,
+                                        const edm4hep::TrackState& t2) {
+  RVec<double> result;
+  double xc[2], yc[2], rc[2];
+  edm4hep::TrackState tracks[2] = {t1, t2};
+  for (int k = 0; k < 2; ++k) {
+    const TVectorD par = VertexingUtils::get_trackParam(tracks[k], true);
+    const double D = par[0], phi0 = par[1], C = par[2];
+    xc[k] = -(D + 0.5 / C) * std::sin(phi0);
+    yc[k] = (D + 0.5 / C) * std::cos(phi0);
+    rc[k] = 0.5 / std::abs(C);
+  }
+  const double dx = xc[1] - xc[0], dy = yc[1] - yc[0];
+  const double d = std::hypot(dx, dy);
+  if (!std::isfinite(d) || !std::isfinite(rc[0]) || !std::isfinite(rc[1]) ||
+      !(d > 0.))
+    return result;
+  const double ux = dx / d, uy = dy / d;
+  double X, Y;
+  if (d >= rc[0] + rc[1]) {            // disjoint circles: middle of the gap
+    const double t = rc[0] + 0.5 * (d - rc[0] - rc[1]);
+    X = xc[0] + t * ux;
+    Y = yc[0] + t * uy;
+  } else if (d <= std::abs(rc[0] - rc[1])) {  // nested: middle of the gap
+    const double s = (rc[0] > rc[1]) ? 1. : -1.;
+    X = 0.5 * (xc[0] + xc[1] + s * (rc[0] + rc[1]) * ux);
+    Y = 0.5 * (yc[0] + yc[1] + s * (rc[0] + rc[1]) * uy);
+  } else {
+    const double a = (rc[0] * rc[0] - rc[1] * rc[1] + d * d) / (2. * d);
+    const double h2 = rc[0] * rc[0] - a * a;
+    X = xc[0] + a * ux;
+    Y = yc[0] + a * uy;
+    if (h2 > 0) {
+      const double h = std::sqrt(h2);
+      const double r1 = std::hypot(X - h * uy, Y + h * ux);
+      const double r2 = std::hypot(X + h * uy, Y - h * ux);
+      result.push_back(std::min(r1, r2));
+      result.push_back(std::max(r1, r2));
+      return result;
+    }
+  }
+  result.push_back(std::hypot(X, Y));
+  return result;
+}
+
+// Largest transverse radius [cm, from the detector axis] of a vertex that a
+// track with nVdet VDET layers and nItc ITC layers hit can come from: the
+// outer edge of the innermost detector its hits require (inner VDET layer
+// with 2 layers, outer VDET layer with 1, ITC outer radius with ITC only),
+// plus the tolerance of aleph_reco_config.h; unbounded without VDET or ITC hits (or with unknown counts, -1).
+inline double maxVertexRadiusFromHits(int nVdet, int nItc) {
+  double r = std::numeric_limits<double>::infinity();
+  if (nVdet >= 2)
+    r = AlephReco::kVdetInnerR + AlephReco::kHitReachTolVdetInner;
+  else if (nVdet == 1)
+    r = AlephReco::kVdetOuterR + AlephReco::kHitReachTolVdetOuter;
+  if (nItc >= 1)
+    r = std::min(r, AlephReco::kItcOuterR + AlephReco::kHitReachTolItc);
+  return r;
+}
+
+// Two-track fit of the V0 finder. Started at the perigees, the fit can
+// converge to the wrong crossing of the two track circles. Candidate
+// solutions: fitTracksCm (perigee start) and fitTracksCmFromR at each
+// circleCrossingRadii radius. A solution beyond maxVertexRadiusFromHits of
+// either track is excluded; the lowest chi2 of the rest is returned (NaN
+// ranks last), the perigee-start fit when none is left. nVdet1/nItc1 and
+// nVdet2/nItc2: the hit counts of pair[0] and pair[1].
+inline VertexingUtils::FCCAnalysesVertex fitV0PairCm(
+    const RVec<edm4hep::TrackState>& pair,
+    const RVec<edm4hep::TrackState>& alltracks, double Bz, int nVdet1,
+    int nItc1, int nVdet2, int nItc2) {
+  const double rMax = std::min(maxVertexRadiusFromHits(nVdet1, nItc1),
+                               maxVertexRadiusFromHits(nVdet2, nItc2));
+  RVec<double> startR{-1.};
+  if (pair.size() == 2)
+    for (double r : circleCrossingRadii(pair[0], pair[1])) startR.push_back(r);
+  VertexingUtils::FCCAnalysesVertex perigee, best;
+  bool found = false;
+  double bestChi2 = 0.;
+  for (size_t k = 0; k < startR.size(); ++k) {
+    auto v = (k == 0) ? fitTracksCm(pair, alltracks, Bz)
+                      : fitTracksCmFromR(pair, alltracks, Bz, startR[k]);
+    double chi2 = v.vertex.chi2;
+    if (std::isnan(chi2)) chi2 = std::numeric_limits<double>::infinity();
+    const bool inReach =
+        std::hypot(v.vertex.position[0], v.vertex.position[1]) < rMax;
+    if (k == 0) perigee = v;
+    if (inReach && (!found || chi2 < bestChi2)) {
+      best = v;
+      bestChi2 = chi2;
+      found = true;
+    }
+  }
+  return found ? best : perigee;
 }
 
 // Undefined Armenteros-Podolanski variables: the value the candidate-level

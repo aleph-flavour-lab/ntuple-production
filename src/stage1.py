@@ -707,7 +707,10 @@ class Analysis():
 
         ############################################# Standalone two-tier V0 module ###########################################
         if self.do_v0new:
-            v0n_expr = f"FCCAnalyses::AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, {BZ})"
+            # VDET / ITC layers hit per secondary track: they bound the pair-fit vertex radius
+            for _n, _w in (("v0n_sec_nvdet", 0), ("v0n_sec_nitc", 1)):
+                df = df.Define(_n, f"FCCAnalyses::AlephTrkAux::subdetHits(sec2origIdx, Tracks.subdetectorHitNumbers_begin, Tracks.subdetectorHitNumbers_end, _Tracks_subdetectorHitNumbers, {_w})")
+            v0n_expr = f"FCCAnalyses::AlephV0New::findV0s(SecondaryTracks_looseBS, VertexObject_looseBS, {BZ}, v0n_sec_nvdet, v0n_sec_nitc)"
             if self.do_pvnew:
                 v0n_expr = self._pv_guard(v0n_expr, "FCCAnalyses::AlephV0New::V0Collection{}")
             df = df.Define("V0sNew_event", v0n_expr)
