@@ -27,7 +27,8 @@ and ks_trk{1,2}_{origIdx,q,p,nTPC,isChargedHad} equal stage1's v0n_* entries at
 v0n_pdg == 310 && v0n_tight == 1 (ks_p is the magnitude of v0n_px, v0n_py,
 v0n_pz), and the daughters' dE/dx _value, _nSamples, _expected_<h>, _sigma_<h>,
 _pull_<h> and truth branches equal stage1's per-track trk_* branches at their
-origIdx. ks_trk{1,2}_costheta and ks_trk{1,2}_phi have no stage1 counterpart.
+origIdx. ks_trk{1,2}_costheta, ks_trk{1,2}_phi and the link branches have no
+stage1 counterpart.
 
 Output branches. event_number, run_number and n_ks have one value per event,
 every other branch one entry per tight Ks of the event. trk1 = the higher-
@@ -76,10 +77,24 @@ daughter without a track (origIdx -1).
                                        (dEdxWiresQDEDXMPID; -999, also in an event without the ALPHA
                                        MC banks)
   MC truth (PDG codes: +211 = pi+, but +11 = e-)
-    ks_trk{1,2}_truePdg                ALPHA's best-match MC particle of the track (KBESTM); 0 = none,
-                                       -999 = event without the ALPHA MC banks
+    ks_trk{1,2}_truePdg                ALPHA's best-match MC particle of the track (KBESTM); 0 = no match,
+                                       which does not mean background: real low-momentum pions can fail
+                                       the routine's hit requirement; -999 = event without the ALPHA MC
+                                       banks
     ks_trk{1,2}_trueMotherPdg          its first parent, 310 for the daughter of a true Ks; 0 = no
                                        best match or no parent, -999 as truePdg
+    ks_trk{1,2}_linkPdg                looser label: the MC particle on the track's highest-weight
+                                       trackMCLink entry (first on a tie, no charge requirement); 0 = no
+                                       link. Suited to Ks daughters, which the mass and the other
+                                       daughter already constrain; not a safe truth label for tracks
+                                       in general
+    ks_trk{1,2}_linkMotherPdg          its first parent; 0 = no link or no parent
+    ks_trk{1,2}_linkWeight             the weight of that link: ITC + TPC coordinates attributed to the
+                                       particle over the track's ITC + TPC hits (can exceed 1); 0 = no
+                                       link
+    ks_linkSameK0S                     1 = the linkPdg particles of the two daughters are different and
+                                       have the same parent, a true Ks (310); 0 = otherwise; -999 = a
+                                       daughter without a track
 
 About the dE/dx. On MC with a TPC simulation of version 216 or later (300 in
 the MC checked for the converter's documentation) dEdxWiresPID already holds
@@ -122,8 +137,8 @@ Per daughter (leg 0 = trk1, leg 1 = trk2):
                _Tracks_subdetectorHitNumbers, 2)            TPC hits
     legIsChargedHad(origIdx, rpOfTrack, ParticleIDNoLumiCal)  rpOfTrack: Tracks index ->
         RecoParticlesNoLumiCal index
-    AlephVars::trackDedx / trackBestMatchTruth (analyzer_alephvars.h): arrays over
-        Tracks that a leg reads at origIdx (ROOT::VecOps::Take)
+    AlephVars::trackDedx / trackBestMatchTruth / trackBestLink (analyzer_alephvars.h):
+        arrays over Tracks that a leg reads at origIdx (ROOT::VecOps::Take)
     Other per-track quantities are reached the same way through origIdx, e.g. subdetHits
     with component 0 (VDET) or 1 (ITC) hits, or trackChi2Ndf(origIdx, Tracks.chi2,
     Tracks.ndf) (analyzer_trkaux.h).
@@ -338,6 +353,9 @@ class Analysis():
                                            "_dEdxWiresQDEDXMMCLink_from, _dEdxWiresQDEDXMMCLink_to, MCParticles, "
                                            "_MCParticles_parents, _trackMCLink_from, _trackMCLink_to, "
                                            "trackMCLink.weight)")
+            # and the MC particle on each track's highest-weight trackMCLink entry
+            df = df.Define("trkBestLink", f"{AV}::trackBestLink(Tracks.size(), MCParticles, _MCParticles_parents, "
+                                          "_trackMCLink_from, _trackMCLink_to, trackMCLink.weight)")
         for t in ("trk1", "trk2"):
             # the leg's Tracks index in the index type of Take; -1 becomes out of range (-999)
             df = df.Define(f"_ks_{t}_take", f"ROOT::VecOps::RVec<std::size_t>(ks_{t}_origIdx.begin(), ks_{t}_origIdx.end())")
@@ -354,6 +372,13 @@ class Analysis():
                 for b, m in (("truePdg", "pdg"), ("trueMotherPdg", "motherPdg")):
                     self.aleph_branches.append(f"ks_{t}_{b}")
                     df = df.Define(self.aleph_branches[-1], f"ROOT::VecOps::Take(trkBestMatch.{m}, _ks_{t}_take, {AV}::kNotAvailableInt)")
+                for b, m, na in (("linkPdg", "pdg", "kNotAvailableInt"), ("linkMotherPdg", "motherPdg", "kNotAvailableInt"),
+                                 ("linkWeight", "weight", "kNotAvailable")):
+                    self.aleph_branches.append(f"ks_{t}_{b}")
+                    df = df.Define(self.aleph_branches[-1], f"ROOT::VecOps::Take(trkBestLink.{m}, _ks_{t}_take, {AV}::{na})")
+        if not self.ana_args.doData:
+            self.aleph_branches.append("ks_linkSameK0S")
+            df = df.Define("ks_linkSameK0S", f"{AV}::linkSameK0S(trkBestLink, ks_trk1_origIdx, ks_trk2_origIdx)")
         return df
 
     def output(self):
