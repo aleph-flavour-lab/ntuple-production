@@ -180,6 +180,62 @@ inline TrackTruth trackBestMatchTruth(size_t nTracks, bool noQDEDXM,
   return out;
 }
 
+// Truth of every track from its highest-weight trackMCLink entry (the first on
+// a tie; no charge requirement): the PDG code and MCParticles index of that MC
+// particle (0 and -1 = no link), the PDG code and MCParticles index of its first
+// parent (0 and -1 = no link or no parent) and the weight of the link (0 = no link).
+struct TrackLink {
+  RVec<int> pdg, idx, motherPdg, motherIdx;
+  RVec<float> weight;
+};
+
+inline TrackLink trackBestLink(size_t nTracks, const RVec<edm4hep::MCParticleData>& mc,
+                               const RVec<podio::ObjectID>& mcParents,
+                               const RVec<podio::ObjectID>& linkFrom,
+                               const RVec<podio::ObjectID>& linkTo,
+                               const RVec<float>& linkWeight) {
+  if (linkFrom.size() != linkTo.size() || linkWeight.size() != linkFrom.size())
+    throw std::runtime_error("AlephVars::trackBestLink: trackMCLink size mismatch");
+  RVec<int> best(nTracks, -1);
+  for (size_t i = 0; i < linkFrom.size(); ++i) {
+    const int t = linkFrom[i].index, m = linkTo[i].index;
+    if (t < 0 || (size_t)t >= nTracks || m < 0 || (size_t)m >= mc.size())
+      throw std::runtime_error("AlephVars::trackBestLink: trackMCLink entry out of range");
+    if (best[t] < 0 || linkWeight[i] > linkWeight[best[t]]) best[t] = i;
+  }
+  TrackLink out{RVec<int>(nTracks, 0), RVec<int>(nTracks, -1), RVec<int>(nTracks, 0),
+                RVec<int>(nTracks, -1), RVec<float>(nTracks, 0.f)};
+  for (size_t t = 0; t < nTracks; ++t) {
+    if (best[t] < 0) continue;
+    const auto& p = mc[linkTo[best[t]].index];
+    out.pdg[t] = p.PDG;
+    out.idx[t] = linkTo[best[t]].index;
+    out.weight[t] = linkWeight[best[t]];
+    if (p.parents_end <= p.parents_begin) continue;
+    const int q = p.parents_end <= mcParents.size() ? mcParents[p.parents_begin].index : -1;
+    if (q < 0 || (size_t)q >= mc.size())
+      throw std::runtime_error("AlephVars::trackBestLink: MCParticles parent out of range");
+    out.motherPdg[t] = mc[q].PDG;
+    out.motherIdx[t] = q;
+  }
+  return out;
+}
+
+// Per V0 candidate, from the Tracks indices of its two legs: 1 = the MC
+// particles of trackBestLink of the two legs are different and have the same
+// parent, a K0S (PDG 310), 0 = otherwise, kNotAvailableInt = a leg without a track.
+inline RVec<int> linkSameK0S(const TrackLink& link, const RVec<int>& leg1, const RVec<int>& leg2) {
+  RVec<int> out(leg1.size(), kNotAvailableInt);
+  const int n = link.pdg.size();
+  for (size_t k = 0; k < leg1.size(); ++k) {
+    const int a = leg1[k], b = leg2[k];
+    if (a < 0 || a >= n || b < 0 || b >= n) continue;
+    out[k] = link.motherPdg[a] == 310 && link.motherIdx[a] == link.motherIdx[b] &&
+             link.idx[a] != link.idx[b];
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // ALEPH V0 candidates (YV0V): V0Vertices[i] (position, covariance, chi2,
 // relation to the daughters' RecoParticles) and V0VerticesRefitted[i] (30

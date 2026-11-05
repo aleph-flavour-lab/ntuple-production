@@ -2,9 +2,9 @@
 #define ALEPHTRUTH_H
 
 /*
-  The truth-FREE secondary-track index recovery (secondaryToOriginalTrack, which
-  runs on data too) and the event-order V0 candidate getters, plus the two
-  track -> MC link helpers Kspipi_example.py uses. Positions in cm.
+  The secondary-track index recovery (secondaryToOriginalTrack) and the
+  event-order V0 candidate getters. Nothing here reads MC truth: everything
+  runs on data too. Positions in cm.
 */
 
 #include <stdexcept>
@@ -12,9 +12,7 @@
 #include <ROOT/RVec.hxx>
 #include "TVector3.h"
 
-#include "edm4hep/MCParticleData.h"
 #include "edm4hep/TrackState.h"
-#include "podio/ObjectID.h"
 
 #include "FCCAnalyses/VertexingUtils.h"
 
@@ -24,44 +22,6 @@ namespace FCCAnalyses {
 namespace AlephTruth {
 
 using ROOT::VecOps::RVec;
-
-// Many-to-many track -> MC map from the trackMCLink collection. Link
-// convention: _trackMCLink_from indexes Tracks, _trackMCLink_to indexes
-// MCParticles.
-
-inline RVec<RVec<int>> buildTrackToMCs(size_t n_tracks,
-                                       const RVec<podio::ObjectID>& link_from,
-                                       const RVec<podio::ObjectID>& link_to) {
-  if (link_from.size() != link_to.size())
-    throw std::runtime_error("AlephTruth::buildTrackToMCs: link size mismatch");
-  RVec<RVec<int>> out(n_tracks);
-  for (size_t i = 0; i < link_from.size(); ++i) {
-    int trk_idx = link_from[i].index;
-    int mc_idx = link_to[i].index;
-    if (trk_idx < 0 || trk_idx >= (int)n_tracks) continue;
-    out[trk_idx].push_back(mc_idx);
-  }
-  return out;
-}
-
-// PDG code of the MC particle linked to each original track index, 0 for an
-// invalid index or an unlinked track. A track links to every MC particle with a
-// hit on it, in hit order along the track, all with weight 1.0: the first link
-// is taken, which is usually the parent for a decay in flight.
-inline RVec<int> trackTruePdg(const RVec<int>& origIdx,
-                              const RVec<RVec<int>>& trackToMCs,
-                              const RVec<edm4hep::MCParticleData>& mc) {
-  RVec<int> out;
-  for (int t : origIdx) {
-    int pdg = 0;
-    if (t >= 0 && t < (int)trackToMCs.size() && !trackToMCs[t].empty()) {
-      const int m = trackToMCs[t][0];
-      if (m >= 0 && m < (int)mc.size()) pdg = mc[m].PDG;
-    }
-    out.push_back(pdg);
-  }
-  return out;
-}
 
 // V0 candidates hold reco_ind into SecondaryTracks_looseBS: for each secondary
 // (flipped param space) find its position in the flipped selected-baseline list
