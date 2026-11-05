@@ -105,6 +105,25 @@ inline TrackDedx trackDedx(const RVec<edm4hep::ParticleIDData>& pid,
   return out;
 }
 
+// Entries of a per-track array (one entry per Tracks entry) at the Tracks
+// indices idx, e.g. the dE/dx of candidate legs; idx -1 (no track) reads
+// kNotAvailable.
+inline RVec<float> atTrack(const RVec<float>& perTrack, const RVec<int>& idx) {
+  RVec<float> out;
+  out.reserve(idx.size());
+  for (const int i : idx) {
+    if (i == -1) {
+      out.push_back(kNotAvailable);
+      continue;
+    }
+    if (i < 0 || (size_t)i >= perTrack.size())
+      throw std::runtime_error("AlephVars::atTrack: Tracks index " + std::to_string(i) +
+                               " out of range");
+    out.push_back(perTrack[i]);
+  }
+  return out;
+}
+
 // Truth of every track from ALPHA's best match (KBESTM), the
 // dEdxWiresQDEDXMMCLink relation (at most one link per track): the PDG code of
 // the best-match MC particle and of its immediate parent in the MCParticles

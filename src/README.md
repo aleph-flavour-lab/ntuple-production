@@ -49,7 +49,7 @@ Only the data runs selected in `data/lumi/run_list_<year>.csv` are kept, before 
 
 `run_list.luminosity_pb(year)` describes the whole list, and the printed summary differs from it only by the `--excludeRuns` runs; neither describes the data a production actually processed: they do not follow `--fraction` (which keeps the first input files up to that fraction of the events, i.e. a subset of the runs, not that fraction of the luminosity), a subset of the input files, failed or missing jobs, or `--noRunList` (the unselected runs have no luminosity in it). stage1 always selects the runs of the default `nominal` policy, so the luminosity of another policy applies only to data restricted to `run_list.good_runs(year, policy)`. For such productions sum `run_list.run_luminosities(year, policy)` (`nominal` by default) over the distinct `run_number` values of the output (exact when whole input files are processed: no 1994 run is split across files). Only the selected runs have an entry, so for a `--noRunList` output this sum covers its selected runs only; restrict the events to `run_list.good_runs(year, policy)` first. `$ALEPH_RUN_LIST_<year>`, like `$ALEPH_BEAMSPOT_JSON` (the per-run beamspot file of the data), is read by the job itself, and `fccanalysis submit` does not pass the submitting shell's environment to the HTCondor jobs (`getenv = False`): batch jobs use the default files whatever is set at submission.
 
-`--noDedxGate` (data and MC) accepts every linked dE/dx measurement as valid, i.e. switches off the failed-leg omega sentinel gate. Use it with converters that no longer copy the track omega into a failed leg.
+`--noDedxGate` (data and MC) accepts every linked dE/dx measurement of the `pfcand_dEdx_*` block as valid, i.e. switches off the failed-leg omega sentinel gate. Use it with converters that no longer copy the track omega into a failed leg.
 
 The baseline track selection shared by the primary vertex fit, the V0 finder, the secondary vertex finders and the φ→K⁺K⁻ and D* finders (whose pairing pool is the baseline list minus the tight `v0n` daughters), and recorded in `trk_member` bit 9, requires `chi2/ndf <= 10`, finite track-state parameters, a finite positive-definite perigee covariance (5x5 block, Cholesky test), at least `kTrackMinTPCHits` (4) TPC hits and `|z0| <= kTrackMaxAbsZ0` (50 cm, perigee to the origin); `--oldTrackSel` (data and MC) drops the TPC-hit and `|z0|` requirements, for all of them. In simulation it roughly triples the D* candidates and the running time.
 
@@ -94,7 +94,7 @@ Standalone V0 (Ks/Λ) reconstruction in [`analyzer_v0new.h`](analyzer_v0new.h). 
 
 **Stored flags and ML inputs.** `v0n_tight` is the tier the finder booked the candidate in (booking a candidate ≠ selecting it — the loose tier is stored with the flag off). The tight tier and the two hypotheses can be taken as collections of their own with the header's `tightV0s` / `getKs` / `getLambda` (copies of the same fitted candidates; `Kspipi_example.py` shows the chain). `v0n_bandSig` and `v0n_massSig` store the AP-band and mass cut variables as signed pulls in resolution units for training; all other cut variables (cosPointing, pointSig, qT, χ², displacement, p, invM) are stored raw.
 
-**Output branches.** One block, written by default and dropped by `--oldV0`: `n_v0n_event`, `v0n_pdg`, `v0n_invM`, `v0n_alpha`, `v0n_qt`, `v0n_chi2`, `v0n_dxyz`, `v0n_px/py/pz`, `v0n_cosPointing`, `v0n_pointSig`, `v0n_tight`, `v0n_bandSig`, `v0n_massSig`, `v0n_vx/vy/vz`, the vertex-fit covariance `v0n_cov_*`, the daughter joins `v0n_trk1_origIdx`/`v0n_trk2_origIdx` and their `v0n_trk{1,2}_dEdx_{pads,wires}_{value,error}` and `v0n_trk{1,2}_isChargedHad` — event-order candidate quantities, independent of jet assignment. The candidate momentum magnitude is not written: it is \|(`v0n_px`, `v0n_py`, `v0n_pz`)\|.
+**Output branches.** One block, written by default and dropped by `--oldV0`: `n_v0n_event`, `v0n_pdg`, `v0n_invM`, `v0n_alpha`, `v0n_qt`, `v0n_chi2`, `v0n_dxyz`, `v0n_px/py/pz`, `v0n_cosPointing`, `v0n_pointSig`, `v0n_tight`, `v0n_bandSig`, `v0n_massSig`, `v0n_vx/vy/vz`, the vertex-fit covariance `v0n_cov_*`, the daughter joins `v0n_trk1_origIdx`/`v0n_trk2_origIdx` and their `v0n_trk{1,2}_dEdx_{wires,pads}_*` and `v0n_trk{1,2}_isChargedHad` — event-order candidate quantities, independent of jet assignment. The candidate momentum magnitude is not written: it is \|(`v0n_px`, `v0n_py`, `v0n_pz`)\|.
 
 Per candidate, in the order of `v0n_pdg`:
 
@@ -115,14 +115,14 @@ Per candidate, in the order of `v0n_pdg`:
 | `v0n_vx/vy/vz` | fitted vertex position | cm | — |
 | `v0n_cov_{xx,yx,yy,zx,zy,zz}` | vertex-fit position covariance, packed lower triangle | cm² | — |
 | `v0n_trk{1,2}_origIdx` | index of the daughter in the `Tracks` collection | — | −1 |
-| `v0n_trk{1,2}_dEdx_{pads,wires}_{value,error}` | daughter dE/dx measurement after the validity gate | as `pfcand_dEdx_*` | −1 |
+| `v0n_trk{1,2}_dEdx_{wires,pads}_{value,nSamples,pull_<h>}` | daughter dE/dx and its pulls for ALPHA's hypotheses: `trk_dEdx_*` at `v0n_trk{1,2}_origIdx` | as `trk_dEdx_*` | −999 (as `trk_dEdx_*`, or no daughter track) |
 | `v0n_trk{1,2}_isChargedHad` | tri-state particle-flow label of the daughter (see below) | — | −1 (no linked reconstructed particle of type 0 to 5) |
 
 The two daughter legs `v0n_trk1_*` / `v0n_trk2_*` are in momentum order, `v0n_trk1_*` the higher-momentum daughter at the fitted vertex, *not* in charge order. The Λ hypothesis gives the proton mass to the higher-momentum daughter, so the proton of a Λ candidate is always `v0n_trk1`.
 
 `v0n_alpha` follows the physical charge — the positive track is taken first, so α = (p∥⁺ − p∥⁻)/(p∥⁺ + p∥⁻), and α > 0 means Λ rather than Λ̄.
 
-A daughter leg whose dE/dx measurement is missing or fails the validity gate reads −1 in both `v0n_trk{1,2}_dEdx_{pads,wires}_value` and `..._error`, not the −9 of the `pfcand_dEdx_*` block. `--noDedxGate` switches the gate off for both blocks alike.
+The daughter dE/dx branches of every finder (`v0n`, `phikk`, `dstar` legs) are copies of the per-track `trk_dEdx_{wires,pads}_{value,nSamples,pull_<h>}` (see [ALEPH's own reconstruction](#alephs-own-reconstruction-converter-collections)), with the same −999 sentinel; they differ from the −9 of the `pfcand_dEdx_*` block. The other per-track dE/dx branches (expected dE/dx, resolution, track length, error code) are read at the leg's `_origIdx`, e.g. `trk_dEdx_wires_sigma_pi[v0n_trk1_origIdx]`.
 
 ### Jet-relative V0 tagger inputs
 
@@ -177,7 +177,7 @@ fccanalysis run Kspipi_example.py -i <mc.root> -o ks_mc.root -j 16
 
 The dE/dx branches have the names of stage1's per-track `trk_dEdx_*` branches, with the prefix `ks_trk*_` instead of `trk_`. In the dE/dx and truth branches −999 means not available; exclude these entries before using a value. The docstring lists every branch with its unit and undefined value.
 
-**Caveats.** Do not select on `ks_trk*_isChargedHad` in a dE/dx study: ALEPH's electron identification uses dE/dx, and the flag is also 0 for tracks of ALEPH's own V0s. The tight Kₛ are not free of background (conversions, Λ, random pairs); on MC the truth branches give the composition. stage1's `v0n_trk*_dEdx_*` branches read the `dEdxWires` / `dEdxPads` collections, computed for a dummy hypothesis of mass 1 GeV, and differ from the example's `ks_trk*_dEdx_*` (see the docstring).
+**Caveats.** Do not select on `ks_trk*_isChargedHad` in a dE/dx study: ALEPH's electron identification uses dE/dx, and the flag is also 0 for tracks of ALEPH's own V0s. The tight Kₛ are not free of background (conversions, Λ, random pairs); on MC the truth branches give the composition.
 
 For stage1 run with its default reconstruction options, every branch with a stage1 counterpart equals it event by event: the Kₛ and the daughters' `origIdx`, `q`, `p`, `nTPC` and `isChargedHad` the `v0n_*` entries at `v0n_pdg == 310 && v0n_tight == 1`, the dE/dx values (pulls included) and the truth values the `trk_*` branches at the daughters' `origIdx`. The daughter angles and the link branches have no stage1 counterpart.
 
@@ -276,7 +276,7 @@ Standalone φ(1020)→K⁺K⁻ reconstruction in [`analyzer_phikk.h`](analyzer_p
 
 **Working-point flags.** Two per-candidate integer flags are stored alongside the loose sample, evaluated on the stored quantities themselves (post-fit mass, at-vertex daughter momenta): `phikk_wp` = |m − m_φ| < `WP_DM` and both daughters p > `WP_PDAU` and |vtx − PV| < `WP_DPV`; `phikk_tight` = the same with |m − m_φ| < `TIGHT_DM` and both daughters σ(d0) < `TIGHT_SIGD0`. Both are **charge-blind** on purpose: the signal sample is `phikk_wp && !phikk_same_sign` and the same-charge control sample under *identical* cuts is `phikk_wp && phikk_same_sign` (likewise for `phikk_tight`), which is what makes the sideband subtraction well defined. They are labels, not cuts — no candidate is dropped by them.
 
-**Stored per-daughter block** (`phikk_trk1_`, `phikk_trk2_`; `trk1` is the higher-momentum leg). Original-track index, charge, momentum, cosθ, d0/z0 w.r.t. the run beamspot, σ(d0) at the perigee, nVDET/nITC hits, track χ²/ndf, whether the track was in the fitted primary set, the pads/wires dE/dx value and error, and the particle-flow label `isChargedHad` — everything the offline quality and purity scans need.
+**Stored per-daughter block** (`phikk_trk1_`, `phikk_trk2_`; `trk1` is the higher-momentum leg). Original-track index, charge, momentum, cosθ, d0/z0 w.r.t. the run beamspot, σ(d0) at the perigee, nVDET/nITC hits, track χ²/ndf, whether the track was in the fitted primary set, the wire and pad dE/dx and its pulls for ALPHA's hypotheses, and the particle-flow label `isChargedHad` — everything the offline quality and purity scans need.
 
 Per candidate (`n_phikk_event` entries); the per-leg branches are in the table of the D* section:
 
@@ -316,7 +316,7 @@ Offline remedies, in increasing order of effort: tighten the D⁰ mass window, s
 
 **Working-point flags.** Labels, not cuts — no candidate is dropped by them, and they are evaluated on the stored post-fit quantities. `dstar_loose` = |m(Kπ) − m_D⁰| < `DS_LOOSE_DM` and |Δm − `DM_NOMINAL`| < `DS_LOOSE_DDM`, with no requirement on the slow pion or the pointing. `dstar_tight` tightens those to `DS_TIGHT_DM` and `DS_TIGHT_DDM` and adds p(K) > `TIGHT_PK`, p(π) > `TIGHT_PPI`, a D⁰ vertex χ² below `TIGHT_CHI2`, p(π_s) > `DS_TIGHT_PS`, `cosPoint` > `DS_TIGHT_COSPOINT`, and a **primary-pattern veto**: a candidate whose K and π are both in the fitted primary set while its slow pion is not is rejected, that pattern being combinatorial rather than a real D* topology.
 
-**Stored per-daughter block** (`dstar_trkK_`, `dstar_trkPi_`, and `dstar_trkPis_` for the slow pion). Original-track index, charge, momentum, cosθ, d0/z0 (beamspot-referenced, as on the φ legs), σ(d0) at the perigee, nVDET/nITC hits, track χ²/ndf, whether the track was in the fitted primary set, the staging pool, the pads/wires dE/dx value and error, and the particle-flow label `isChargedHad`.
+**Stored per-daughter block** (`dstar_trkK_`, `dstar_trkPi_`, and `dstar_trkPis_` for the slow pion). Original-track index, charge, momentum, cosθ, d0/z0 (beamspot-referenced, as on the φ legs), σ(d0) at the perigee, nVDET/nITC hits, track χ²/ndf, whether the track was in the fitted primary set, the staging pool, the wire and pad dE/dx and its pulls for ALPHA's hypotheses, and the particle-flow label `isChargedHad`.
 
 Per D* entry (`n_dstar_event` entries). Some branches describe the D*, others the D⁰ it is built from:
 
@@ -353,7 +353,7 @@ Per leg, for the φ legs `phikk_trk{1,2}_*` (`trk1` the higher-momentum one) and
 | `_chi2ndf` | track-fit χ²/ndf | — | −1 (ndf = 0) |
 | `_isprim` | 1 = in the fitted primary-vertex set | — | — |
 | `_pool` (D* only) | 0 = primary set, 1 = secondary set; the value 2 ("neither") does not occur, since every baseline track is in one of the two | — | — |
-| `_dEdx_{pads,wires}_{value,error}` | dE/dx measurement after the validity gate | as `pfcand_dEdx_*` | −1 (missing or failed, as on the `v0n` legs) |
+| `_dEdx_{wires,pads}_{value,nSamples,pull_<h>}` | dE/dx and its pulls for ALPHA's hypotheses: `trk_dEdx_*` at `_origIdx` | as `trk_dEdx_*` | −999 (as `trk_dEdx_*`, or no daughter track) |
 | `_isChargedHad` | tri-state particle-flow label (see above) | — | −1 (no linked reconstructed particle of type 0 to 5) |
 
 ### Track membership and joins
@@ -406,7 +406,7 @@ Per track, arrays over the whole `Tracks` collection like `trk_member` (a leg re
 | `trk_mcNLinks` | simulation: number of MC particles linked to the track in `trackMCLink` | — | always on data |
 | `trk_trueSharedFrac` | simulation: `trackMCLink` weight of the link to the best-matching MC particle, the fraction of the track's ITC and TPC coordinates attributed to it (can exceed 1) | — | as `trk_trueP`; −1 = the best match is not among the track's links |
 
-These differ from `pfcand_dEdx_*` and `<leg>_dEdx_*`, which read the `dEdxWires`/`dEdxPads` measurements of a dummy 1 GeV hypothesis (no pad value below about 0.15-0.2 GeV in 1994). A simulated event without the ALPHA MC banks (the MC truth, `FKIN`/`FVER` or `KINE`/`VERT`) has empty QDEDXM collections and reads −999 in `trk_dEdx_wiresQDEDXM_*`, `trk_true*` and `trk_mcNLinks`.
+These differ from `pfcand_dEdx_*`, which reads the `dEdxWires`/`dEdxPads` measurements of a dummy 1 GeV hypothesis (no pad value below about 0.15-0.2 GeV in 1994). A simulated event without the ALPHA MC banks (the MC truth, `FKIN`/`FVER` or `KINE`/`VERT`) has empty QDEDXM collections and reads −999 in `trk_dEdx_wiresQDEDXM_*`, `trk_true*` and `trk_mcNLinks`.
 
 Only with `--alephV0s` (data and MC; without it these branches are not written and their collections are not required), per ALEPH V0 candidate (`YV0V`), in the order of `V0Vertices`, `n_yv0_event` per event (the Mini-DST keeps at most 29 per event in the 1994 data of version 202, 50 in simulation):
 
@@ -427,7 +427,7 @@ Per event, from `RunInformation`: `EVT_Ebeam`, the LEP beam energy (`RLEP`) in G
 
 stage1 stops when a converter collection breaks its documented layout, e.g. a dE/dx collection without one entry per track (an empty QDEDXM collection excepted), best-match links in an event without QDEDXM entries, a relation index out of range or a `RunInformation` list of another layout.
 
-An input converted before these collections existed (e.g. the older official EDM4hep files) stops stage1 with an error naming the missing collections, before any event is read. `--oldConverter` (data and MC) lets stage1 run instead and write −999 placeholders for the missing collections: per-track arrays of −999, `n_yv0_event` −999 with empty `yv0_*` arrays (with `--alephV0s`); with it, V0 candidates without the `YV0V` words read −999 in `yv0_fitCode`, `yv0_helixDistance` and the Armenteros branches, and `EVT_Bz` reads −999 if `RunInformation` holds no field.
+An input converted before these collections existed (e.g. the older official EDM4hep files) stops stage1 with an error naming the missing collections, before any event is read. `--oldConverter` (data and MC) lets stage1 run instead and write −999 placeholders for the missing collections: per-track arrays of −999, `n_yv0_event` −999 with empty `yv0_*` arrays (with `--alephV0s`); with it, V0 candidates without the `YV0V` words read −999 in `yv0_fitCode`, `yv0_helixDistance` and the Armenteros branches, and `EVT_Bz` reads −999 if `RunInformation` holds no field. The candidate legs' dE/dx (`<leg>_dEdx_*`) are then −999 too.
 
 ### Run on batch:
 ```
