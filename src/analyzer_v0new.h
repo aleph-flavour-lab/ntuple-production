@@ -19,8 +19,6 @@
 
 #include "aleph_units.h"
 #include "analyzer_trkaux.h"
-#include "dedx_valid.h"
-#include "edm4hep/TrackData.h"
 #include "edm4hep/TrackState.h"
 #include "FCCAnalyses/VertexingUtils.h"
 
@@ -563,61 +561,6 @@ inline V0SVPointing candSVPointing(const VertexingUtils::FCCAnalysesV0& v0s,
     out.pointSig.push_back(pointSigTransverse(d, p, v.vertex.covMatrix,
                                               sv.covMatrix));
     out.svIdx.push_back(best);
-  }
-  return out;
-}
-
-// Measurement index of every original track index, or -1; built ONCE per
-// collection per event. A track measured twice keeps the LAST measurement, as
-// the particle-flow join does. The entry is -1 when it fails the shared
-// validity gate (value == omega of the track = the failed-leg sentinel, or a
-// non-finite/non-positive value or error), so the value and error branches
-// share one lookup; gate = false accepts every linked measurement. Sized by the
-// track count, so callers index the result by original Tracks index.
-inline RVec<int> dedxIndexByTrack(const RVec<float>& value,
-                                  const RVec<float>& error,
-                                  const RVec<int>& meas_track_idx,
-                                  const RVec<edm4hep::TrackData>& tracks,
-                                  const RVec<edm4hep::TrackState>& trackStates,
-                                  bool gate = true) {
-  RVec<int> out(tracks.size(), -1);
-  const size_t nm = std::min({value.size(), error.size(),
-                              meas_track_idx.size()});
-  for (size_t j = 0; j < nm; ++j) {
-    const int t = meas_track_idx[j];
-    // out-of-range relation entry = corrupt input: fail loudly
-    if (t < 0 || t >= (int)out.size())
-      throw std::runtime_error(
-          "AlephV0New::dedxIndexByTrack: dEdx->Track relation entry out of range");
-    out[t] = (int)j;
-  }
-  if (!gate) return out;
-  for (size_t t = 0; t < out.size(); ++t) {
-    const int j = out[t];
-    if (j < 0) continue;
-    const size_t stateIdx = tracks[t].trackStates_begin;
-    if (stateIdx >= trackStates.size())
-      throw std::runtime_error(
-          "AlephV0New::dedxIndexByTrack: Track->TrackState index out of range");
-    if (!AlephDedx::dEdxValid(value[j], error[j], trackStates[stateIdx].omega))
-      out[t] = -1;
-  }
-  return out;
-}
-
-// Per-track quantity by ORIGINAL track index through that join; -1 when the
-// track has no valid measurement.
-inline RVec<float> trackQuantityByIndex(const RVec<int>& want,
-                                        const RVec<float>& values,
-                                        const RVec<int>& meas_of_track) {
-  RVec<float> out;
-  for (int w : want) {
-    float val = -1.f;
-    if (w >= 0 && w < (int)meas_of_track.size()) {
-      const int j = meas_of_track[w];
-      if (j >= 0 && j < (int)values.size()) val = values[j];
-    }
-    out.push_back(val);
   }
   return out;
 }
