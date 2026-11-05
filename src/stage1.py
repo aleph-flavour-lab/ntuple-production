@@ -128,7 +128,8 @@ CAND_KIN_BRANCHES = ("m_kpi", "p", "px", "py", "pz", "costheta", "xE", "chi2",
                      "cosThetaStar")
 DSTAR_CAND_BRANCHES = ("m_kpi", "dm", "p", "px", "py", "pz", "costheta", "xE",
                        "chi2", "vx", "vy", "vz", "dpv", "dpvSig", "cosPoint",
-                       "cosThetaStar", "rs", "loose", "tight", "d0idx", "nsec")
+                       "cosThetaStar", "rs", "loose", "tight", "d0idx", "nsec",
+                       "L", "sigL", "Lxy", "sigLxy", "d0_px", "d0_py", "d0_pz")
 DSTAR_TRK_BRANCHES = ("origIdx", "q", "p", "costheta", "d0", "z0", "sigd0",
                       "nvdet", "nitc", "chi2ndf", "isprim", "pool")
 # (branch prefix, member of DstarCands) of every stored daughter leg

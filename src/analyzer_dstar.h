@@ -53,6 +53,7 @@ constexpr double DM_MAX = 0.20;              // stored dm ceiling [GeV]
 // applied to the PERIGEE momentum, while the stored trk p is the at-vertex one
 constexpr double P_MIN = 0.3;                // K/pi |p| floor [GeV]
 constexpr double PS_MIN = 0.1;               // slow-pion |p| floor [GeV]
+constexpr double L_UNDEF = -99.;             // decay length along a vanishing direction
 
 // Working-point flags, evaluated on the stored quantities.
 constexpr double D0_LOOSE_DM = 0.060;        // |m(K pi) - m_D0| [GeV]
@@ -112,6 +113,9 @@ struct DstarBlock {
   RVec<int>   loose, tight;
   RVec<int>   d0idx;           // index of the parent entry in the internal D0 list
   RVec<int>   nsec;            // legs in the secondary pool (0-3)
+  // D0 decay length (vtx - PV) . p_D0 / |p_D0| and its uncertainty, 3D and transverse [cm]
+  RVec<float> L, sigL, Lxy, sigLxy;
+  RVec<float> d0_px, d0_py, d0_pz;  // D0 momentum = K + pi at the fitted vertex [GeV]
   TrkBlock    trkK, trkPi, trkPis;
 };
 
@@ -160,7 +164,22 @@ inline void reserveDstar(DstarBlock& d, size_t n) {
   reserveKin(d.kin, n);
   d.dm.reserve(n); d.rs.reserve(n); d.loose.reserve(n);
   d.tight.reserve(n); d.d0idx.reserve(n); d.nsec.reserve(n);
+  d.L.reserve(n); d.sigL.reserve(n); d.Lxy.reserve(n); d.sigLxy.reserve(n);
+  d.d0_px.reserve(n); d.d0_py.reserve(n); d.d0_pz.reserve(n);
   reserveTrk(d.trkK, n); reserveTrk(d.trkPi, n); reserveTrk(d.trkPis, n);
+}
+
+// Signed flight d . u along u = dir / |dir| and its uncertainty sqrt(u^T C u), C = summed
+// position covariance; L_UNDEF if dir vanishes, sig -1 for a non-positive or non-finite variance.
+inline void flightAlong(const TVector3& d, const TVector3& dir, const double C[3][3],
+                        double& L, double& sig) {
+  L = L_UNDEF;
+  sig = -1.;
+  if (!(dir.Mag() > 0.)) return;
+  const TVector3 u = dir.Unit();
+  L = d.Dot(u);
+  const double s2 = AlephTrkAux::quadFormCov(u, u, C);
+  if (s2 > 0. && std::isfinite(s2)) sig = std::sqrt(s2);
 }
 
 // The finder; every selection value is a constant defined above.
@@ -223,6 +242,7 @@ inline DstarCands findDstar(
     bool ok;
     double chi2, dis;
     float dsig;
+    double L, sigL, Lxy, sigLxy;  // along p_a + p_b, the same for both mass assignments
     TVector3 x, d, pa, pb;
   };
   RVec<edm4hep::TrackState> tr_pair(2);
@@ -248,6 +268,11 @@ inline DstarCands findDstar(
           r.dsig = vertexDistSig(dvec, v.vertex.covMatrix, PV.vertex.covMatrix);
           r.pa = v.updated_track_momentum_at_vertex[0];
           r.pb = v.updated_track_momentum_at_vertex[1];
+          double C[3][3];
+          AlephTrkAux::sumCovPacked(v.vertex.covMatrix, PV.vertex.covMatrix, C);
+          const TVector3 p = r.pa + r.pb;
+          flightAlong(dvec, p, C, r.L, r.sigL);
+          flightAlong(dvec, TVector3(p.X(), p.Y(), 0.), C, r.Lxy, r.sigLxy);
         }
       }
     }
@@ -259,6 +284,7 @@ inline DstarCands findDstar(
     int iK, iPi;
     double m, chi2, dis, cosp, cstar, energy;
     float dsig;
+    double L, sigL, Lxy, sigLxy;
     TVector3 p3, x, pK, pPi;
     int loose, tight;
   };
@@ -308,6 +334,7 @@ inline DstarCands findDstar(
           c.x = fr.x;
           c.dis = fr.dis;
           c.dsig = fr.dsig;
+          c.L = fr.L; c.sigL = fr.sigL; c.Lxy = fr.Lxy; c.sigLxy = fr.sigLxy;
           c.cosp = (fr.dis > 0.) ? c.p3.Dot(fr.d) / (pmag * fr.dis) : -99.;
           c.cstar = cosThetaStarK(c.pK, c.pPi);
 
@@ -360,6 +387,13 @@ inline DstarCands findDstar(
     out.ds.d0idx.push_back(d0idx);
     out.ds.nsec.push_back((isSec(c.iK) ? 1 : 0) + (isSec(c.iPi) ? 1 : 0) +
                           (isSec(k) ? 1 : 0));
+    out.ds.L.push_back(c.L);
+    out.ds.sigL.push_back(c.sigL);
+    out.ds.Lxy.push_back(c.Lxy);
+    out.ds.sigLxy.push_back(c.sigLxy);
+    out.ds.d0_px.push_back(c.p3.X());
+    out.ds.d0_py.push_back(c.p3.Y());
+    out.ds.d0_pz.push_back(c.p3.Z());
     pushTrk(out.ds.trkK, tracks, c.iK, c.pK, aux);
     pushTrk(out.ds.trkPi, tracks, c.iPi, c.pPi, aux);
     pushTrk(out.ds.trkPis, tracks, k, pper[k], aux);
