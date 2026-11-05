@@ -253,7 +253,7 @@ class Analysis():
         parser.add_argument('--alephV0s', action='store_true',
                             help="write ALEPH's own V0 candidates (YV0V: n_yv0_event and the yv0_* branches); without it they are neither computed nor written and their converter collections are not required.")
         parser.add_argument('--oldConverter', action='store_true',
-                            help='accept an input of an older converter version, made before the dE/dx-hypothesis, V0-word, beam-spot and (MC) QDEDXM collections or the magnetic field in RunInformation existed: their branches and the dE/dx of the candidate legs and jet constituents are written as -999 placeholders instead of stopping.')
+                            help='accept an input of an older converter version, made before the dE/dx-hypothesis, V0-word, beam-spot and (MC) QDEDXM collections or the magnetic field in RunInformation existed: their branches are written as -999 placeholders instead of stopping, and without the dE/dx-hypothesis collections so is the dE/dx of the candidate legs and jet constituents.')
         # Parse additional arguments not known to the FCCAnalyses parsers
         # All command line arguments know to fccanalysis are provided in the
         # `cmdline_arg` dictionary.

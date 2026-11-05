@@ -120,7 +120,7 @@ The two daughter legs `v0n_trk1_*` / `v0n_trk2_*` are in momentum order, `v0n_tr
 
 `v0n_alpha` follows the physical charge — the positive track is taken first, so α = (p∥⁺ − p∥⁻)/(p∥⁺ + p∥⁻), and α > 0 means Λ rather than Λ̄.
 
-The daughter dE/dx branches of every finder (`v0n`, `phikk`, `dstar` legs), like `pfcand_dEdx_*`, are copies of the per-track `trk_dEdx_{wires,pads}_{value,nSamples,pull_<h>}` (see [ALEPH's own reconstruction](#alephs-own-reconstruction-converter-collections)), with the same −999 sentinel. The other per-track dE/dx branches (expected dE/dx, resolution, track length, error code) are read at the leg's `_origIdx` (a jet constituent's `pfcand_trackIdx`), e.g. `trk_dEdx_wires_sigma_pi[v0n_trk1_origIdx]`.
+The daughter dE/dx branches of every finder (`v0n`, `phikk`, `dstar` legs), like `pfcand_dEdx_*`, are copies of the per-track `trk_dEdx_{wires,pads}_{value,nSamples,pull_<h>}` (see [ALEPH's own reconstruction](#alephs-own-reconstruction-converter-collections)). The other per-track dE/dx branches (expected dE/dx, resolution, track length, error code) are read at the leg's `_origIdx` (a jet constituent's `pfcand_trackIdx`), e.g. `trk_dEdx_wires_sigma_pi[v0n_trk1_origIdx]`.
 
 ### Jet-relative V0 tagger inputs
 
@@ -425,7 +425,7 @@ Per event, from `RunInformation`: `EVT_Ebeam`, the LEP beam energy (`RLEP`) in G
 
 stage1 stops when a converter collection breaks its documented layout, e.g. a dE/dx collection without one entry per track (an empty QDEDXM collection excepted), best-match links in an event without QDEDXM entries, a relation index out of range or a `RunInformation` list of another layout.
 
-An input converted before these collections existed (e.g. the older official EDM4hep files) stops stage1 with an error naming the missing collections, before any event is read. `--oldConverter` (data and MC) lets stage1 run instead and write −999 placeholders for the missing collections: per-track arrays of −999, `n_yv0_event` −999 with empty `yv0_*` arrays (with `--alephV0s`); with it, V0 candidates without the `YV0V` words read −999 in `yv0_fitCode`, `yv0_helixDistance` and the Armenteros branches, and `EVT_Bz` reads −999 if `RunInformation` holds no field. The candidate legs' and jet constituents' dE/dx (`<leg>_dEdx_*`, `pfcand_dEdx_*`) are then −999 too.
+An input converted before these collections existed (e.g. the older official EDM4hep files) stops stage1 with an error naming the missing collections, before any event is read. `--oldConverter` (data and MC) lets stage1 run instead and write −999 placeholders for the missing collections: per-track arrays of −999, `n_yv0_event` −999 with empty `yv0_*` arrays (with `--alephV0s`); with it, V0 candidates without the `YV0V` words read −999 in `yv0_fitCode`, `yv0_helixDistance` and the Armenteros branches, and `EVT_Bz` reads −999 if `RunInformation` holds no field. When `dEdxWiresPID` / `dEdxPadsPID` are missing, the candidate legs' and jet constituents' dE/dx (`<leg>_dEdx_*`, `pfcand_dEdx_*`) are −999 too.
 
 ### Run on batch:
 ```
