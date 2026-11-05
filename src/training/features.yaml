@@ -2,7 +2,7 @@
 # Weaver data config for training a THREE-stream ParT on the custom ALEPH
 # stage2 output: pfcand ("pf"), V0s ("v0"), and secondary vertices ("sv").
 # Uses essentially every per-object variable stage2_aleph.py produces for each
-# of the three groups (dEdx pads+wires, all PID p-values, all track-quality/
+# of the three groups (dEdx pads+wires and their hypothesis pulls, all track-quality/
 # impact-parameter variables, etc.) rather than a hand-picked subset.
 #
 # See example_ParticleTransformerTagger_full.py for the matching
@@ -143,23 +143,21 @@ inputs:
       - pfcand_btagJetDistVal_clean
       - pfcand_btagJetDistSig_clean
       # ---- dEdx pads ----
-      - pfcand_dEdx_pads_type
       - pfcand_dEdx_pads_value
-      - pfcand_dEdx_pads_error
-      - pfcand_PID_pval_pads_ele
-      - pfcand_PID_pval_pads_mu
-      - pfcand_PID_pval_pads_pi
-      - pfcand_PID_pval_pads_kaon
-      - pfcand_PID_pval_pads_proton
+      - pfcand_dEdx_pads_nSamples
+      - pfcand_dEdx_pads_pull_ele
+      - pfcand_dEdx_pads_pull_mu
+      - pfcand_dEdx_pads_pull_pi
+      - pfcand_dEdx_pads_pull_kaon
+      - pfcand_dEdx_pads_pull_proton
       # ---- dEdx wires ----
-      - pfcand_dEdx_wires_type
       - pfcand_dEdx_wires_value
-      - pfcand_dEdx_wires_error
-      - pfcand_PID_pval_wires_ele
-      - pfcand_PID_pval_wires_mu
-      - pfcand_PID_pval_wires_pi
-      - pfcand_PID_pval_wires_kaon
-      - pfcand_PID_pval_wires_proton
+      - pfcand_dEdx_wires_nSamples
+      - pfcand_dEdx_wires_pull_ele
+      - pfcand_dEdx_wires_pull_mu
+      - pfcand_dEdx_wires_pull_pi
+      - pfcand_dEdx_wires_pull_kaon
+      - pfcand_dEdx_wires_pull_proton
 
   pf_vectors:
     length: 128

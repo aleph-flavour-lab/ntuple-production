@@ -321,25 +321,23 @@ VAR_MAP = {
     "pfcand_btagJetDistVal": (0, 0.1, 50, r"Distance to Jet Axis"),
     "pfcand_btagJetDistSig": (-20, 20, 50, r"Distance to Jet Axis Significance"),
 
-    # ------------------------------------------- dE/dx and PID (pads) ------
-    "pfcand_dEdx_pads_type": (-10, 10, 20, r"dE/dx type (Pads)"),
+    # ------------------------------------------- dE/dx (pads) --------------
     "pfcand_dEdx_pads_value": (-10, 20, 60, r"dE/dx (Pads)"),
-    "pfcand_dEdx_pads_error": (-10, 5, 60, r"dE/dx error (Pads)"),
-    "pfcand_PID_pval_pads_ele": (-1.2, 1.2, 48, r"Electron $p$-val (Pads)"),
-    "pfcand_PID_pval_pads_mu": (-1.2, 1.2, 48, r"Muon $p$-val (Pads)"),
-    "pfcand_PID_pval_pads_pi": (-1.2, 1.2, 48, r"Pion $p$-val (Pads)"),
-    "pfcand_PID_pval_pads_kaon": (-1.2, 1.2, 48, r"Kaon $p$-val (Pads)"),
-    "pfcand_PID_pval_pads_proton": (-1.2, 1.2, 48, r"Proton $p$-val (Pads)"),
+    "pfcand_dEdx_pads_nSamples": (0, 25, 25, r"dE/dx samples (Pads)"),
+    "pfcand_dEdx_pads_pull_ele": (-5, 5, 50, r"Electron dE/dx pull (Pads)"),
+    "pfcand_dEdx_pads_pull_mu": (-5, 5, 50, r"Muon dE/dx pull (Pads)"),
+    "pfcand_dEdx_pads_pull_pi": (-5, 5, 50, r"Pion dE/dx pull (Pads)"),
+    "pfcand_dEdx_pads_pull_kaon": (-5, 5, 50, r"Kaon dE/dx pull (Pads)"),
+    "pfcand_dEdx_pads_pull_proton": (-5, 5, 50, r"Proton dE/dx pull (Pads)"),
 
-    # ------------------------------------------ dE/dx and PID (wires) ------
-    "pfcand_dEdx_wires_type": (-10, 10, 20, r"dE/dx type (Wires)"),
+    # ------------------------------------------ dE/dx (wires) --------------
     "pfcand_dEdx_wires_value": (-10, 15, 50, r"dE/dx (Wires)"),
-    "pfcand_dEdx_wires_error": (-10, 5, 60, r"dE/dx error (Wires)"),
-    "pfcand_PID_pval_wires_ele": (-10, 1.5, 46, r"Electron $p$-val (Wires)"),
-    "pfcand_PID_pval_wires_mu": (-10, 1.5, 46, r"Muon $p$-val (Wires)"),
-    "pfcand_PID_pval_wires_pi": (-10, 1.5, 46, r"Pion $p$-val (Wires)"),
-    "pfcand_PID_pval_wires_kaon": (-10, 1.5, 46, r"Kaon $p$-val (Wires)"),
-    "pfcand_PID_pval_wires_proton": (-10, 1.5, 46, r"Proton $p$-val (Wires)"),
+    "pfcand_dEdx_wires_nSamples": (0, 400, 40, r"dE/dx samples (Wires)"),
+    "pfcand_dEdx_wires_pull_ele": (-5, 5, 50, r"Electron dE/dx pull (Wires)"),
+    "pfcand_dEdx_wires_pull_mu": (-5, 5, 50, r"Muon dE/dx pull (Wires)"),
+    "pfcand_dEdx_wires_pull_pi": (-5, 5, 50, r"Pion dE/dx pull (Wires)"),
+    "pfcand_dEdx_wires_pull_kaon": (-5, 5, 50, r"Kaon dE/dx pull (Wires)"),
+    "pfcand_dEdx_wires_pull_proton": (-5, 5, 50, r"Proton dE/dx pull (Wires)"),
 
     # ------------------------------------------------------- thrust --------
     "EVT_Thrust_Mag": (0.5, 1.0, 50, r"Thrust $T$"),
@@ -352,7 +350,6 @@ VAR_MAP = {
     # ------------------------------------------------------- debug ---------
     "pfcand_dEdx_len": (0, 60, 60, r"dE/dx array length (jet 0)"),
     "pfcand_E_len": (0, 60, 60, r"Energy array length (jet 0)"),
-    "pfcand_pval_ele_len": (0, 60, 60, r"$p$-val array length (jet 0)"),
 }
 
 
@@ -367,9 +364,9 @@ def _add(prefix, table, label_prefix):
 
 _LEG_COMMON = {
     "dEdx_pads_value": (-2, 20, 88, r"dE/dx (Pads)"),
-    "dEdx_pads_error": (-2, 5, 70, r"dE/dx error (Pads)"),
+    "dEdx_pads_nSamples": (0, 25, 25, r"dE/dx samples (Pads)"),
     "dEdx_wires_value": (-2, 15, 68, r"dE/dx (Wires)"),
-    "dEdx_wires_error": (-2, 5, 70, r"dE/dx error (Wires)"),
+    "dEdx_wires_nSamples": (0, 400, 40, r"dE/dx samples (Wires)"),
     "isChargedHad": (-1.5, 1.5, 3, r"PF charged-hadron label"),
 }
 _EXCL_TRK = {

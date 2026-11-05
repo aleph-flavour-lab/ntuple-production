@@ -106,13 +106,7 @@ constants of data run 16001, and its expected_<h> and sigma_<h> have no
 momentum-error term; above run 2000 it returns the measured dE/dx. The dE/dx
 branches have the names of stage1's per-track trk_dEdx_* branches, with the
 prefix ks_trk{1,2}_ instead of trk_. stage1's V0-leg branches
-v0n_trk{1,2}_dEdx_{wires,pads}_{value,error} are different: they read the
-dEdxWires / dEdxPads collections of a dummy hypothesis. Their value equals
-ks_trk{1,2}_dEdx_{wires,pads}_value where both are valid (measured on one 1994
-data and one MC file: every tight-Ks daughter), but their error is ALPHA's
-resolution for a particle of mass 1 GeV and charge 1, close to sigma_proton,
-and the pads measurements below about 0.15-0.2 GeV in 1994 are lost there
-(kept in dEdxPadsPID).
+v0n_trk{1,2}_dEdx_{wires,pads}_{value,nSamples,pull_<h>} copy the same entries.
 
 Reconstruction chain of stage1's default, every Define written out; the
 constants are the ones stage1 uses, named from aleph_units.h (field) and
