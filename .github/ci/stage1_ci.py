@@ -1,7 +1,8 @@
 """fccanalysis analysis script of the stage1 CI.
 
 Runs the repository's src/stage1.py unchanged; only the input directory, the output
-directory and the number of threads are redirected, from the environment:
+directory and the number of threads are redirected, from the environment, and the MC
+process is renamed to the synthetic input's QQB:
   CI_INPUT_DIR   directory holding 1994/*.root (data) and QQB/*.root (MC)
   CI_OUTPUT_DIR  where the stage1 output is written
   CI_NTHREADS    number of threads
@@ -22,6 +23,10 @@ class Analysis(_stage1.Analysis):
         self.input_dir = os.environ["CI_INPUT_DIR"]
         self.output_dir = os.environ["CI_OUTPUT_DIR"]
         self.n_threads = int(os.environ["CI_NTHREADS"])
+        if not self.ana_args.doData:
+            # the synthetic MC is QQB/*.root, whatever stage1 names its MC process
+            (settings,) = self.process_list.values()
+            self.process_list = {"QQB": settings}
         # no copy of the output to the production area on EOS
         self.__dict__.pop("output_dir_eos", None)
         # the header paths are relative to src/, not to this script
