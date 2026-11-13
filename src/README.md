@@ -30,6 +30,8 @@ fccanalysis run stage1.py -- --tag <version_tag>  --MCflavour <flavour_index>
 Output files will be in: 
 `/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/<year>/<mc_type>/stage1/<version_tag>/<flavour_name>.root`. 
 
+The input is `/eos/experiment/aleph/EDM4HEP/l2e-prod-v1/MC/<year>/QQB/NOMINAL/`; with `--batch` (production with `fccanalysis submit`) the outputs go to `/eos/experiment/fcc/ee/analyses/case-studies/aleph/processedMC/<year>/<mc_type>/stage1/<version_tag>/<flavour_name>/NOMINAL/` (the last folder is the process name, fixed to `NOMINAL` in `stage1.py`).
+
 Fraction of events to process can be set via `--fraction <val>`, default is to process all events. 
 
 `--year <year>` and `--MCtype <type>` are also supported command line arguments, currently we only have `1994` and `zqq` here. 

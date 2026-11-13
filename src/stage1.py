@@ -335,7 +335,7 @@ class Analysis():
                 self.n_threads = 32 
 
         else:
-            self.input_dir = f"/eos/experiment/aleph/EDM4HEP/MC/{self.ana_args.year}/"
+            self.input_dir = f"/eos/experiment/aleph/EDM4HEP/l2e-prod-v1/MC/{self.ana_args.year}/QQB/"
             # self.output_dir = "."
 
             #set the output file name depending on resonance flavour 
@@ -349,11 +349,11 @@ class Analysis():
                 #split in chunks or not (if works well should make this default)
                 if self.ana_args.chunks:
                     self.process_list = {
-                        "QQB" : {"fraction" : self.ana_args.fraction, "output":output_name, "chunks":self.ana_args.chunks},        
+                        "NOMINAL" : {"fraction" : self.ana_args.fraction, "output":output_name, "chunks":self.ana_args.chunks},        
                     }
                 else:
                     self.process_list = {
-                        "QQB" : {"fraction" : self.ana_args.fraction, "output":output_name},        
+                        "NOMINAL" : {"fraction" : self.ana_args.fraction, "output":output_name},        
                     }
 
                 self.n_threads = 8
@@ -365,13 +365,13 @@ class Analysis():
                 if self.ana_args.valid:
 
                     self.process_list = { 
-                        "QQB/ZM4212_39_AL" : {"fraction" : self.ana_args.fraction, "output":"ntuple_valid_tester_{}".format(self.ana_args.MCflavour)},           
+                        "NOMINAL/ZM4212_39_AL" : {"fraction" : self.ana_args.fraction, "output":"ntuple_valid_tester_{}".format(self.ana_args.MCflavour)},           
                     }
                 
                 #process full files: 
                 else:
                     self.process_list = {
-                            "QQB" : {"fraction" : self.ana_args.fraction, "output":output_name},        
+                            "NOMINAL" : {"fraction" : self.ana_args.fraction, "output":output_name},        
                         }
 
             
